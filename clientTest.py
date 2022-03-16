@@ -1,4 +1,5 @@
 import socket
+from struct import *
 
 
 class Client:
@@ -27,6 +28,12 @@ class Client:
             if i == 4 and elements[4]:
                 self.element5 = elements[4]
 
+def packPDU(packagetype, idtransmitter, idcommunication, data):
+    return pack("1s11s11s61s", bytes.fromhex('a0'), bytes(idtransmitter, "UTF-8"), bytes(idcommunication, "UTF-8"), bytes(data, "UTF-8"))
+
+
+
+
 class PDU:
     def __init__(self, packagetype, idtransmitter, idcommunication, data=None):
         self.packagetype = packagetype,
@@ -54,9 +61,9 @@ def readfile(client):
 
 def sendUDPPacket(client):
     UDPConnexion = (client.server, int(client.serverUDP))
-    pduREG_REQ = PDU(client.id, "0000000000", "")
+    pduREG_REQ = packPDU('0xa0', client.id, "0000000000", "")
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.sendto(bytes(str(pduREG_REQ), "UTF-8"), UDPConnexion)
+    sock.sendto(pduREG_REQ, UDPConnexion)
     print(pduREG_REQ)
     data = sock.recv(1024).decode("UTF-8")
     sock.close()
@@ -65,10 +72,11 @@ def sendUDPPacket(client):
 
 def sendTCPPacket(client):
     TCPConnexion = (client.server, 2202)
-    pduREG_REQ = PDU(client.id, "0000000000", "")
+    pduREG_REQ = packPDU('0xa0', client.id, "0000000000", "")
+    print(pduREG_REQ)
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.connect(TCPConnexion)
-    sock.send(bytes(str(pduREG_REQ), "UTF-8"))
+    sock.send(pduREG_REQ)
     data = sock.recv(1024)
     print(data)
 
@@ -76,7 +84,7 @@ def setup():
     client = Client
     readfile(client)
     client.setElements(client, client.elements)
-    sendTCPPacket(client)
+    sendUDPPacket(client)
 
 
 
