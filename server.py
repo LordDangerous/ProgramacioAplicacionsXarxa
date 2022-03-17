@@ -84,6 +84,13 @@ def unpackPDU(PDU):
     decodedpackagetype = packagetype.hex().rstrip('\x00')
     decodedidtransmitter = idtransmitter.decode("UTF-8").rstrip('\x00')
     decodedidcommunication = idcommunication.decode("UTF-8").rstrip('\x00')
+
+    data_decoded = ""
+    for byte in data:
+        if byte != 0:
+            data_decoded += chr(byte)
+            print(f"B: {byte}")
+    print(data_decoded)
     decodeddata = data.decode("UTF-8").split('\x00', 1)[0]
     print(f"Package type: {decodedpackagetype} length: {len(decodedpackagetype)}")
     print(f"ID Trasmitter: {decodedidtransmitter} length: {len(decodedidtransmitter)}")
