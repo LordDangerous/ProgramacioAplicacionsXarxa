@@ -13,13 +13,13 @@ t = 1
 class Server:
     def __init__(self, id_server, udp_port, tcp_port):
         self.id_server = id_server
-        self.udp_port = udp_port
+        self.udp_port = int(udp_port)
         self.tcp_port = tcp_port
 
 
 class Client:
     def __init__(self, id_client_client, state=None, ip=None):
-        self.id_client_client = id_client_client
+        self.id_client = id_client
         self.state = state
         self.ip = ip
 
@@ -78,7 +78,7 @@ def read_tcp(sock_tcp):
 
 def pack_pdu(package_type, id_client_transmitter, id_client_communication, data):
     return pack("1s11s11s61s", bytes(package_type, "UTF-8"), bytes(id_client_transmitter, "UTF-8"),
-                bytes(id_client_communication, "UTF-8"), bytes(data, "UTF-8"))
+                bytes(str(id_client_communication), "UTF-8"), bytes(str(data), "UTF-8"))
 
 
 def unpack_pdu(pdu):
@@ -103,18 +103,20 @@ def unpack_pdu(pdu):
 
 
 def register(package_type, id_client_transmitter, id_client_communication, data, address, sock, clients, server):
-    print(f"id_client transmitter: {id_client_transmitter}; id_client communication: {id_client_communication}; data: {data}")
+    print(f"id_client_transmitter: {id_client_transmitter}; id_client communication: {id_client_communication}; data: {data}")
     if id_client_transmitter in clients and id_client_communication == "0000000000" and data == "" and clients[id_client_transmitter] == "DISCONNECTED":
         random_number = str(randint(1000000000, 9999999999))
-
+        
         # Open new UDP port
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        newport = int(server.udp_port) + 1
+        newport = server.udp_port + 1
         sock.bind((HOST, newport))
 
-        sock.sendto(pack_pdu('0xa1', server.id_client, random_number, str(newport)), address)
+        bytes_sent = sock.sendto(pack_pdu('0xa1', server.id_server, random_number, newport), address)
+        print(f"PDU sent: {pack_pdu('0xa1', server.id_server, random_number, newport)}")
+        print(f"Bytes sent: {bytes_sent} to address {address}")
         clients[id_client_transmitter] = "WAIT_INFO"
-
+        print(f"Dispositiu {id_client_transmitter} passa a l'estat: {clients[id_client_transmitter]}")
         input_sock = [sock]
         for i in range(z):
             input_ready, output_ready, except_ready = select(input_sock, [], [], t)
@@ -122,7 +124,7 @@ def register(package_type, id_client_transmitter, id_client_communication, data,
             if input_ready:
                 package_type, id_client_transmitter, id_client_communication, data, address = read_udp(sock, clients)
                 # Fer canvi client a classe i comprovació dades
-                if id_client_transmitter in clients and id_client_communication == server.id_client:
+                if id_client_transmitter in clients and id_client_communication == server.id_server:
                     print("OK")
                     return
 
