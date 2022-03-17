@@ -90,6 +90,8 @@ def unpack_pdu(pdu):
     decoded_data = ""
     for byte in data:
         if byte == 0:
+            break
+        else:
             decoded_data += chr(byte)
             print(f"B: {byte}")
     # decoded_data = data.decode("UTF-8").split('\x00', 1)[0]
