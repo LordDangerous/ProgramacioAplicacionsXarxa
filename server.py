@@ -11,29 +11,31 @@ t = 1
 
 
 class Server:
-    def __init__(self, id, UDPport, TCPport):
-        self.id = id,
-        self.UDPport = UDPport,
-        self.TCPport = TCPport
+    def __init__(self, id_server, udp_port, tcp_port):
+        self.id_server = id_server
+        self.udp_port = udp_port
+        self.tcp_port = tcp_port
 
 
 class Client:
-    def __init__(self, id, state=None, IP=None):
-        self.id = id,
-        self.state = state,
-        self.IP = IP
+    def __init__(self, id_client_client, state=None, ip=None):
+        self.id_client_client = id_client_client
+        self.state = state
+        self.ip = ip
 
 
-def read_file(server):
+def read_file():
+    id_server = udp_port = tcp_port = None
     f = open("server.cfg", "r")
     read = f.read()
     for line in read.splitlines():
         if 'Id =' in line:
-            server.id = line.split('= ', 1)[1]
+            id_server = line.split('= ', 1)[1]
         elif 'UDP-port =' in line:
-            server.UDPport = line.split('= ')[1]
+            udp_port = line.split('= ')[1]
         elif 'TCP-port =' in line:
-            server.TCPport = line.split('= ')[1]
+            tcp_port = line.split('= ')[1]
+    return Server(id_server, udp_port, tcp_port)
 
 
 def read_database():
@@ -47,83 +49,83 @@ def read_database():
     return clients
 
 
-def handleUDPpacket(sock, clients, server):
-    packagetype, idtransmitter, idcommunication, data, address = read_udp(sock)
-    register(packagetype, idtransmitter, idcommunication, data, address, sock, clients, server)
+def handle_udp_packet(sock, clients, server):
+    package_type, id_client_transmitter, id_client_communication, data, address = read_udp(sock)
+    register(package_type, id_client_transmitter, id_client_communication, data, address, sock, clients, server)
 
 
-def read_udp(sockUDP):
-    response = sockUDP.recvfrom(1024)
+def read_udp(sock_udp):
+    response = sock_udp.recvfrom(1024)
     data = response[0]
     address = response[1]
     print(f"Connected by {address} with data {data}")
-    packagetype, idtransmitter, idcommunication, data = unpackPDU(data)
-    return packagetype, idtransmitter, idcommunication, data, address
+    package_type, id_client_transmitter, id_client_communication, data = unpack_pdu(data)
+    return package_type, id_client_transmitter, id_client_communication, data, address
 
-    #sockUDP.sendto(data, address)
+    # sock_udp.sendto(data, address)
 
 
-def read_tcp(sockTCP, clients):
-    conn, address = sockTCP.accept()
+def read_tcp(sock_tcp):
+    conn, address = sock_tcp.accept()
     print(f"Connected by {address}")
-    dataTCP = conn.recv(1024)
-    print(dataTCP)
-    packagetype, idtransmitter, idcommunication, data = unpackPDU(dataTCP)
-    return packagetype, idtransmitter, idcommunication, data, conn
+    data_tcp = conn.recv(1024)
+    print(data_tcp)
+    package_type, id_client_transmitter, id_client_communication, data = unpack_pdu(data_tcp)
+    return package_type, id_client_transmitter, id_client_communication, data, conn
 
-    # conn.sendall(dataTCP)
-
-
-def packPDU(packagetype, idtransmitter, idcommunication, data):
-    return pack("1s11s11s61s", bytes(packagetype, "UTF-8"), bytes(idtransmitter, "UTF-8"),
-                bytes(idcommunication, "UTF-8"), bytes(data, "UTF-8"))
+    # conn.sendall(data_tcp)
 
 
-def unpackPDU(PDU):
-    packagetype, idtransmitter, idcommunication, data = unpack('1s11s11s61s', PDU)
-    decodedpackagetype = packagetype.hex().rstrip('\x00')
-    decodedidtransmitter = idtransmitter.decode("UTF-8").rstrip('\x00')
-    decodedidcommunication = idcommunication.decode("UTF-8").rstrip('\x00')
+def pack_pdu(package_type, id_client_transmitter, id_client_communication, data):
+    return pack("1s11s11s61s", bytes(package_type, "UTF-8"), bytes(id_client_transmitter, "UTF-8"),
+                bytes(id_client_communication, "UTF-8"), bytes(data, "UTF-8"))
 
-    data_decoded = ""
+
+def unpack_pdu(pdu):
+    package_type, id_client_transmitter, id_client_communication, data = unpack('1s11s11s61s', pdu)
+    decoded_package_type = package_type.hex().rstrip('\x00')
+    decoded_id_client_transmitter = id_client_transmitter.decode("UTF-8").rstrip('\x00')
+    decoded_id_client_communication = id_client_communication.decode("UTF-8").rstrip('\x00')
+
+    decoded_data = ""
     for byte in data:
-        if byte != 0:
-            data_decoded += chr(byte)
+        if byte == 0:
+            decoded_data += chr(byte)
             print(f"B: {byte}")
-    print(data_decoded)
-    decodeddata = data.decode("UTF-8").split('\x00', 1)[0]
-    print(f"Package type: {decodedpackagetype} length: {len(decodedpackagetype)}")
-    print(f"ID Trasmitter: {decodedidtransmitter} length: {len(decodedidtransmitter)}")
-    print(f"ID Communication: {decodedidcommunication}")
-    print(f"Data: {decodeddata}")
-    return decodedpackagetype, decodedidtransmitter, decodedidcommunication, decodeddata
+    # decoded_data = data.decode("UTF-8").split('\x00', 1)[0]
+    print(f"Package type: {decoded_package_type} length: {len(decoded_package_type)}")
+    print(f"id_client trasmitter: {decoded_id_client_transmitter} length: {len(decoded_id_client_transmitter)}")
+    print(f"id_client Communication: {decoded_id_client_communication}")
+    print(f"Data: {decoded_data}")
+    return decoded_package_type, decoded_id_client_transmitter, decoded_id_client_communication, decoded_data
 
 
-def register(packagetype, idtransmitter, idcommunication, data, address, sock, clients, server):
-    if idtransmitter in clients and idcommunication == "0000000000" and data == "" and clients[idtransmitter] == "DISCONNECTED":
-        randomnumber = str(randint(1000000000, 9999999999))
+def register(package_type, id_client_transmitter, id_client_communication, data, address, sock, clients, server):
+    print(f"id_client transmitter: {id_client_transmitter}; id_client communication: {id_client_communication}; data: {data}")
+    if id_client_transmitter in clients and id_client_communication == "0000000000" and data == "" and clients[id_client_transmitter] == "DISCONNECTED":
+        random_number = str(randint(1000000000, 9999999999))
 
-        #Open new UDP port
+        # Open new UDP port
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        newport = int(server.UDPport) + 1
+        newport = int(server.udp_port) + 1
         sock.bind((HOST, newport))
 
-        sock.sendto(packPDU('0xa1', server.id, randomnumber, str(newport)), address)
-        clients[idtransmitter] = "WAIT_INFO"
+        sock.sendto(pack_pdu('0xa1', server.id_client, random_number, str(newport)), address)
+        clients[id_client_transmitter] = "WAIT_INFO"
 
-        inputsock = [sock]
+        input_sock = [sock]
         for i in range(z):
-            inputready, outputready, exceptready = select(inputsock, [], [], t)
+            input_ready, output_ready, except_ready = select(input_sock, [], [], t)
 
-            if inputready:
-                packagetype, idtransmitter, idcommunication, data, address = read_udp(sock, clients)
-                ##Fer canvi client a classe i comprovació dades
-                if idtransmitter in clients and idcommunication == server.id:
+            if input_ready:
+                package_type, id_client_transmitter, id_client_communication, data, address = read_udp(sock, clients)
+                # Fer canvi client a classe i comprovació dades
+                if id_client_transmitter in clients and id_client_communication == server.id_client:
                     print("OK")
                     return
 
-        clients[idtransmitter] = "DISCONNECTED"
-        print(f"Client {idtransmitter} desconnectat perquè s'ha exhaurit el temps {z}")
+        clients[id_client_transmitter] = "DISCONNECTED"
+        print(f"Client {id_client_transmitter} desconnectat perquè s'ha exhaurit el temps {z}")
         # TANCAR SOCKET ???????
         sock.close()
 
@@ -133,44 +135,42 @@ def register(packagetype, idtransmitter, idcommunication, data, address, sock, c
         # TODO
 
     else:
-        print(packPDU('0xa3', server.id, "0000000000", "Rebuig de registre"))
-        sock.sendto(packPDU('0xa3', server.id, "0000000000", "Rebuig de registre"), address)
-        clients[idtransmitter] = "DISCONNECTED"
-        print(f"Client {idtransmitter} desconnectat per rebuig de registre: {clients}")
+        print(pack_pdu('0xa3', server.id_server, "0000000000", "Rebuig de registre"))
+        sock.sendto(pack_pdu('0xa3', server.id_server, "0000000000", "Rebuig de registre"), address)
+        clients[id_client_transmitter] = "DISCONNECTED"
+        print(f"Client {id_client_transmitter} desconnectat per rebuig de registre: {clients}")
 
 
 def setup():
-    server = Server
-    read_file(server)
-
+    server = read_file()
     clients = read_database()
 
     # UDP Wait packet
-    sockUDP = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sockUDP.bind((HOST, int(server.UDPport)))
+    sock_udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock_udp.bind((HOST, int(server.udp_port)))
 
     # TCP Wait packet
-    sockTCP = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sockTCP.bind((HOST, int(server.TCPport)))
-    sockTCP.listen()
+    sock_tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock_tcp.bind((HOST, int(server.tcp_port)))
+    sock_tcp.listen()
 
-    input = [sockUDP, sockTCP]
+    input = [sock_udp, sock_tcp]
 
     while True:
-        inputready, outputready, exceptready = select(input, [], [])
+        input_ready, output_ready, except_ready = select(input, [], [])
 
-        for sock in inputready:
-            if sock == sockUDP:
-                thread = threading.Thread(target=handleUDPpacket, args=(sock, clients, server))
+        for sock in input_ready:
+            if sock == sock_udp:
+                thread = threading.Thread(target=handle_udp_packet, args=(sock, clients, server))
                 thread.start()
-                # handleUDPpacket(sock, clients, server)
-                # packagetype, idtransmitter, idcommunication, data, address = read_udp(sock, clients)
-                # register(packagetype, idtransmitter, idcommunication, data, address, sock, clients, server)
-            elif sock == sockTCP:
+                # handle_udp_packet(sock, clients, server)
+                # package_type, id_client_transmitter, id_client_communication, data, address = read_udp(sock, clients)
+                # register(package_type, id_client_transmitter, id_client_communication, data, address, sock, clients, server)
+            elif sock == sock_tcp:
                 return
-                #Replica UDP no usable
-                #packagetype, idtransmitter, idcommunication, data, conn = read_tcp(sock, clients)
-                #register(packagetype, idtransmitter, idcommunication, data, conn, clients, server)
+                # Replica UDP no usable
+                # package_type, id_client_transmitter, id_client_communication, data, conn = read_tcp(sock)
+                # register(package_type, id_client_transmitter, id_client_communication, data, conn, clients, server)
             else:
                 print(f"unknown socket: {sock}")
 
