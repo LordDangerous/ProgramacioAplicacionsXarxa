@@ -48,11 +48,11 @@ def read_database():
 
 
 def handleUDPpacket(sock, clients, server):
-    packagetype, idtransmitter, idcommunication, data, address = read_udp(sock, clients)
+    packagetype, idtransmitter, idcommunication, data, address = read_udp(sock)
     register(packagetype, idtransmitter, idcommunication, data, address, sock, clients, server)
 
 
-def read_udp(sockUDP, clients):
+def read_udp(sockUDP):
     response = sockUDP.recvfrom(1024)
     data = response[0]
     address = response[1]
@@ -84,7 +84,7 @@ def unpackPDU(PDU):
     decodedpackagetype = packagetype.hex().rstrip('\x00')
     decodedidtransmitter = idtransmitter.decode("UTF-8").rstrip('\x00')
     decodedidcommunication = idcommunication.decode("UTF-8").rstrip('\x00')
-    decodeddata = data.decode("UTF-8").rstrip('\x00')
+    decodeddata = data.decode("UTF-8").split('\x00', 1)[0]
     print(f"Package type: {decodedpackagetype} length: {len(decodedpackagetype)}")
     print(f"ID Trasmitter: {decodedidtransmitter} length: {len(decodedidtransmitter)}")
     print(f"ID Communication: {decodedidcommunication}")

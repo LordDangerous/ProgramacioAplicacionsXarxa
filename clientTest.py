@@ -61,7 +61,7 @@ def readfile(client):
 
 def sendUDPPacket(client):
     UDPConnexion = (client.server, int(client.serverUDP))
-    pduREG_REQ = packPDU('0xa0', client.id, "0000000000", "")
+    pduREG_REQ = packPDU('0xa0', client.id, "0000000000", "\x00aaaa")
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.sendto(pduREG_REQ, UDPConnexion)
     print(pduREG_REQ)
