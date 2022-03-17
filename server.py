@@ -124,6 +124,7 @@ def register(package_type, id_client_transmitter, id_client_communication, data,
         logging.info(f"Bytes sent: {bytes_sent} to address {address}")
         clients[id_client_transmitter] = "WAIT_INFO"
         logging.info(f"Dispositiu {id_client_transmitter} passa a l'estat: {clients[id_client_transmitter]}")
+
         input_sock = [sock]
         for i in range(z):
             input_ready, output_ready, except_ready = select(input_sock, [], [], t)
@@ -165,25 +166,25 @@ def setup():
     sock_tcp.bind((HOST, int(server.tcp_port)))
     sock_tcp.listen()
 
-    input_socket = [sock_udp.fileno(), sock_tcp.fileno(), sys.stdin.fileno()]
+    input_socket = [sock_udp, sock_tcp, sys.stdin.fileno()]
 
     while True:
         input_ready, output_ready, except_ready = select(input_socket, [], [])
 
         for sock in input_ready:
-            if sock == sock_udp.fileno():
+            if sock == sock_udp:
                 thread = threading.Thread(target=handle_udp_packet, args=(sock, clients, server))
                 thread.start()
                 # handle_udp_packet(sock, clients, server)
                 # package_type, id_client_transmitter, id_client_communication, data, address = read_udp(sock, clients)
                 # register(package_type, id_client_transmitter, id_client_communication, data, address, sock, clients, server)
-            elif sock == sock_tcp.fileno():
+            elif sock == sock_tcp:
                 return
                 # Replica UDP no usable
                 # package_type, id_client_transmitter, id_client_communication, data, conn = read_tcp(sock)
                 # register(package_type, id_client_transmitter, id_client_communication, data, conn, clients, server)
             elif sock == sys.stdin.fileno():
-                logging.info("HELLOOOOOOOOOO")
+                sys.stdout.write("HELLOO")
             else:
                 logging.info(f"Unknown socket: {sock}")
 
