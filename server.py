@@ -11,7 +11,6 @@ HOST = 'localhost'  # Standard loopback interface address (localhost)
 z = 2
 t = 1
 
-
 # Logging config
 logging.basicConfig(format='%(asctime)s - %(levelname)s => %(message)s', datefmt='%H:%M:%S', level=logging.INFO)
 logging.basicConfig(format='%(asctime)s - %(levelname)s => %(message)s', datefmt='%H:%M:%S', level=logging.DEBUG)
@@ -63,7 +62,10 @@ def read_database():
     for line in read.splitlines():
         clients.append(Client(line, "DISCONNECTED"))
 
-    logging.info(clients)
+    client_info = "\nCLIENT ID\tCLIENT STATE\n"
+    for client in clients:
+        client_info += f"{client.id_client}\t{client.state}\n"
+    logging.info(client_info)
     return clients
 
 
@@ -116,7 +118,8 @@ def unpack_pdu(pdu):
     logging.info("-------------------------------- UNPACK PDU -----------------------------")
     logging.info(f"Package type: {decoded_package_type} length: {len(decoded_package_type)}")
     logging.info(f"id_client trasmitter: {decoded_id_client_transmitter} length: {len(decoded_id_client_transmitter)}")
-    logging.info(f"id_client Communication: {decoded_id_client_communication}; length: {len(decoded_id_client_communication)}")
+    logging.info(
+        f"id_client Communication: {decoded_id_client_communication}; length: {len(decoded_id_client_communication)}")
     logging.info(f"Data: {decoded_data}; length: {len(decoded_data)}")
     logging.info("------------------------------ END UNPACK PDU ---------------------------\n")
     return decoded_package_type, decoded_id_client_transmitter, decoded_id_client_communication, decoded_data
@@ -130,12 +133,13 @@ def check_client(id_client_transmitter, clients):
 
 
 def register(package_type, id_client_transmitter, id_client_communication, data, address, sock, clients, server):
-    logging.info(f"REGISTER: id_client_transmitter: {id_client_transmitter}; id_client communication: {id_client_communication}; data: {data}")
+    logging.info(
+        f"REGISTER: id_client_transmitter: {id_client_transmitter}; id_client communication: {id_client_communication}; data: {data}")
     client = check_client(id_client_transmitter, clients)
 
     if id_client_communication == "0000000000" and data == "" and client.state == "DISCONNECTED":
         random_number = str(randint(1000000000, 9999999999))
-        
+
         # Open new UDP port
         new_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         newport = server.udp_port + 1
@@ -162,12 +166,10 @@ def register(package_type, id_client_transmitter, id_client_communication, data,
                     return
 
         client.state = "DISCONNECTED"
-        logging.info(f"Client {id_client_transmitter} passa a l'estat: {client.state} perquè s'ha exhaurit el temps {z}")
+        logging.info(
+            f"Client {id_client_transmitter} passa a l'estat: {client.state} perquè s'ha exhaurit el temps {z}")
         # TANCAR SOCKET ???????
         new_sock.close()
-
-
-
 
         # TODO
 
@@ -211,7 +213,7 @@ def setup():
             elif sock == sys.stdin.fileno():
                 sys.stdout.write("HELLOO")
             else:
-                logging.info(f"Unknown socket: {sock}")
+                logging.info(f"\nUnknown socket: {sock}")
 
 
 if __name__ == '__main__':
