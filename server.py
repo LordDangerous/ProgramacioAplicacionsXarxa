@@ -84,7 +84,7 @@ def read_tcp(sock_tcp):
 
 
 def pack_pdu(package_type, id_client_transmitter, id_client_communication, data):
-    return pack("1s11s11s61s", bytes(package_type, "UTF-8"), bytes(id_client_transmitter, "UTF-8"),
+    return pack("1s11s11s61s", bytes.fromhex(package_type), bytes(id_client_transmitter, "UTF-8"),
                 bytes(str(id_client_communication), "UTF-8"), bytes(str(data), "UTF-8"))
 
 
@@ -104,28 +104,28 @@ def unpack_pdu(pdu):
     # decoded_data = data.decode("UTF-8").split('\x00', 1)[0]
     logging.info(f"Package type: {decoded_package_type} length: {len(decoded_package_type)}")
     logging.info(f"id_client trasmitter: {decoded_id_client_transmitter} length: {len(decoded_id_client_transmitter)}")
-    logging.info(f"id_client Communication: {decoded_id_client_communication}")
-    logging.info(f"Data: {decoded_data}")
+    logging.info(f"id_client Communication: {decoded_id_client_communication}; length: {len(decoded_id_client_communication)}")
+    logging.info(f"Data: {decoded_data}; length: {len(decoded_data)}")
     return decoded_package_type, decoded_id_client_transmitter, decoded_id_client_communication, decoded_data
 
 
 def register(package_type, id_client_transmitter, id_client_communication, data, address, sock, clients, server):
-    logging.info(f"id_client_transmitter: {id_client_transmitter}; id_client communication: {id_client_communication}; data: {data}")
+    logging.info(f"REGISTER: id_client_transmitter: {id_client_transmitter}; id_client communication: {id_client_communication}; data: {data}")
     if id_client_transmitter in clients and id_client_communication == "0000000000" and data == "" and clients[id_client_transmitter] == "DISCONNECTED":
         random_number = str(randint(1000000000, 9999999999))
         
         # Open new UDP port
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        new_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         newport = server.udp_port + 1
-        sock.bind((HOST, newport))
+        new_sock.bind((HOST, newport))
 
-        bytes_sent = sock.sendto(pack_pdu('0xa1', server.id_server, random_number, newport), address)
-        logging.info(f"PDU sent: {pack_pdu('0xa1', server.id_server, random_number, newport)}")
+        bytes_sent = new_sock.sendto(pack_pdu('a1', server.id_server, random_number, newport), address)
+        logging.info(f"PDU sent: {pack_pdu('a1', server.id_server, random_number, newport)}")
         logging.info(f"Bytes sent: {bytes_sent} to address {address}")
         clients[id_client_transmitter] = "WAIT_INFO"
         logging.info(f"Dispositiu {id_client_transmitter} passa a l'estat: {clients[id_client_transmitter]}")
 
-        input_sock = [sock]
+        input_sock = [new_sock]
         for i in range(z):
             input_ready, output_ready, except_ready = select(input_sock, [], [], t)
 
@@ -139,7 +139,7 @@ def register(package_type, id_client_transmitter, id_client_communication, data,
         clients[id_client_transmitter] = "DISCONNECTED"
         logging.info(f"Client {id_client_transmitter} desconnectat perquè s'ha exhaurit el temps {z}")
         # TANCAR SOCKET ???????
-        sock.close()
+        new_sock.close()
 
 
 
@@ -147,8 +147,8 @@ def register(package_type, id_client_transmitter, id_client_communication, data,
         # TODO
 
     else:
-        logging.info(pack_pdu('0xa3', server.id_server, "0000000000", "Rebuig de registre"))
-        sock.sendto(pack_pdu('0xa3', server.id_server, "0000000000", "Rebuig de registre"), address)
+        logging.info(pack_pdu('a3', server.id_server, "0000000000", "Rebuig de registre"))
+        sock.sendto(pack_pdu('a3', server.id_server, "0000000000", "Rebuig de registre"), address)
         clients[id_client_transmitter] = "DISCONNECTED"
         logging.info(f"Client {id_client_transmitter} desconnectat per rebuig de registre: {clients}")
 
