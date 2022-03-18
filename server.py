@@ -25,10 +25,11 @@ class Server:
 
 
 class Client:
-    def __init__(self, id_client, state=None, ip=None):
+    def __init__(self, id_client, state=None, tcp_port=None, elements=None):
         self.id_client = id_client
         self.state = state
-        self.ip = ip
+        self.tcp_port = tcp_port
+        self.elements = elements
 
 
 def read_file():
@@ -102,10 +103,12 @@ def unpack_pdu(pdu):
             decoded_data += chr(byte)
             logging.info(f"B: {byte}")
     # decoded_data = data.decode("UTF-8").split('\x00', 1)[0]
+    logging.info("-------------------------------- UNPACK PDU -----------------------------")
     logging.info(f"Package type: {decoded_package_type} length: {len(decoded_package_type)}")
     logging.info(f"id_client trasmitter: {decoded_id_client_transmitter} length: {len(decoded_id_client_transmitter)}")
     logging.info(f"id_client Communication: {decoded_id_client_communication}; length: {len(decoded_id_client_communication)}")
     logging.info(f"Data: {decoded_data}; length: {len(decoded_data)}")
+    logging.info("------------------------------ END UNPACK PDU ---------------------------\n")
     return decoded_package_type, decoded_id_client_transmitter, decoded_id_client_communication, decoded_data
 
 
@@ -120,7 +123,7 @@ def register(package_type, id_client_transmitter, id_client_communication, data,
         new_sock.bind((HOST, newport))
 
         bytes_sent = new_sock.sendto(pack_pdu('a1', server.id_server, random_number, newport), address)
-        logging.info(f"PDU sent: {pack_pdu('a1', server.id_server, random_number, newport)}")
+        logging.info(f"PDU REG_ACK sent: {pack_pdu('a1', server.id_server, random_number, newport)}")
         logging.info(f"Bytes sent: {bytes_sent} to address {address}")
         clients[id_client_transmitter] = "WAIT_INFO"
         logging.info(f"Dispositiu {id_client_transmitter} passa a l'estat: {clients[id_client_transmitter]}")
@@ -130,14 +133,17 @@ def register(package_type, id_client_transmitter, id_client_communication, data,
             input_ready, output_ready, except_ready = select(input_sock, [], [], t)
 
             if input_ready:
-                package_type, id_client_transmitter, id_client_communication, data, address = read_udp(sock)
+                logging.info(f"INPUT_READY")
+                package_type, id_client_transmitter, id_client_communication_1, data, address = read_udp(sock)
+                logging.info(f"ID COMMUNICATION: {id_client_communication_1}")
+                logging.info(f"DATA: {data}")
                 # Fer canvi client a classe i comprovació dades
                 if id_client_transmitter in clients and id_client_communication == server.id_server:
                     logging.info("OK")
                     return
 
         clients[id_client_transmitter] = "DISCONNECTED"
-        logging.info(f"Client {id_client_transmitter} desconnectat perquè s'ha exhaurit el temps {z}")
+        logging.info(f"Client {id_client_transmitter} passa a l'estat: {clients[id_client_transmitter] perquè s'ha exhaurit el temps {z}")
         # TANCAR SOCKET ???????
         new_sock.close()
 
