@@ -141,7 +141,7 @@ def check_client_reg_info(data, client):
         client.tcp_port = tcp_port
         client.elements = elements.split(';')
         logging.info(f"Afegit tcp port: {client.tcp_port} al client: {client.id_client}")
-        logging.info(f"Afegit elements: {client.elements} al client: {client.id_client}")
+        logging.info(f"Afegit elements: {client.elements} al client: {client.id_client}\n")
 
 
 
@@ -160,7 +160,7 @@ def register(package_type, id_client_transmitter, id_client_communication, data,
             new_sock.bind((HOST, newport))
 
             bytes_sent = new_sock.sendto(pack_pdu('a1', server.id_server, random_number, newport), address)
-            logging.info(f"PDU REG_ACK sent: {pack_pdu('a1', server.id_server, random_number, newport)}")
+            logging.info(f"PDU REG_ACK sent -> id transmissor: {server.id_server}  id comunicació: {random_number}  dades: {newport}")
             logging.info(f"Bytes sent: {bytes_sent} to address {address}")
             client.state = "WAIT_INFO"
             logging.info(f"Dispositiu {id_client_transmitter} passa a l'estat: {client.state}\n")
@@ -177,15 +177,14 @@ def register(package_type, id_client_transmitter, id_client_communication, data,
                     logging.info(f"DATA: {data}\n")
 
                     client = check_client(id_client_transmitter, clients)
-                    client = check_client_reg_info(data, client)
-
-
+                    check_client_reg_info(data, client)
+                    
+                    
                     if client is not None:
-                        print(client, id_client_communication, random_number)
                         if None not in (client.tcp_port, client.elements) and id_client_communication == random_number:
                             logging.info("Packet REG_INFO CORRECTE")
                             bytes_sent = new_sock.sendto(pack_pdu('a5', server.id_server, random_number, server.tcp_port), address)
-                            logging.info(f"PDU INFO_ACK sent: {pack_pdu('a5', server.id_server, random_number, server.tcp_port)}")
+                            logging.info(f"PDU INFO_ACK sent -> id transmissor: {server.id_server}  id comunicació: {random_number}  dades: {server.tcp_port}")
                             logging.info(f"Bytes sent: {bytes_sent} to address {address}")
                             client.state = "REGISTERED"
                             logging.info(f"Dispositiu {id_client_transmitter} passa a l'estat: {client.state}\n")
@@ -193,7 +192,7 @@ def register(package_type, id_client_transmitter, id_client_communication, data,
                         else:
                             logging.info("Packet REG_INFO INCORRECTE")
                             bytes_sent = new_sock.sendto(pack_pdu('a6', server.id_server, random_number, "Error en packet addicional de registre"), address)
-                            logging.info(f"PDU INFO_ACK sent: {pack_pdu('a6', server.id_server, random_number, 'Error en packet addicional de registre')}")
+                            logging.info(f"PDU INFO_ACK sent -> id transmissor: {server.id_server}  id comunicació: {random_number}  dades: 'Error en packet addicional de registre'")
                             logging.info(f"Bytes sent: {bytes_sent} to address {address}")
                             if client is not None:
                                 client.state = "DISCONNECTED"
@@ -208,7 +207,7 @@ def register(package_type, id_client_transmitter, id_client_communication, data,
             new_sock.close()
 
         else:
-            logging.info(pack_pdu('a3', server.id_server, "0000000000", "Error en els camps del paquet de registre"))
+            logging.debug(pack_pdu('a3', server.id_server, "0000000000", "Error en els camps del paquet de registre"))
             sock.sendto(pack_pdu('a3', server.id_server, "0000000000", "Error en els camps del paquet de registre"), address)
             if client is not None:
                 client.state = "DISCONNECTED"
