@@ -43,7 +43,7 @@ def read_file():
 
 def send_udp_packet(client):
     udp_connexion = (client.server, client.server_udp)
-    pdu_REG_REQ = pack_pdu('0xa0', client.id_client, "0000000000", "aaaa01\x001")
+    pdu_REG_REQ = pack_pdu('0xa0', client.id_client, "0000000000", "")
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.sendto(pdu_REG_REQ, udp_connexion)
     print(pdu_REG_REQ)

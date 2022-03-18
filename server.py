@@ -46,12 +46,22 @@ def read_file():
     return Server(id_server, udp_port, tcp_port)
 
 
+# def read_database():
+#     clients = {}
+#     f = open("bbdd_dev.dat", "r")
+#     read = f.read()
+#     for line in read.splitlines():
+#         clients[line] = "DISCONNECTED"
+#
+#     logging.info(clients)
+#     return clients
+
 def read_database():
-    clients = {}
     f = open("bbdd_dev.dat", "r")
     read = f.read()
+    clients = []
     for line in read.splitlines():
-        clients[line] = "DISCONNECTED"
+        clients.append(Client(line, "DISCONNECTED"))
 
     logging.info(clients)
     return clients
@@ -112,9 +122,18 @@ def unpack_pdu(pdu):
     return decoded_package_type, decoded_id_client_transmitter, decoded_id_client_communication, decoded_data
 
 
+def check_client(id_client_transmitter, clients):
+    for client in clients:
+        if id_client_transmitter == client.id_client:
+            return client
+    return None
+
+
 def register(package_type, id_client_transmitter, id_client_communication, data, address, sock, clients, server):
     logging.info(f"REGISTER: id_client_transmitter: {id_client_transmitter}; id_client communication: {id_client_communication}; data: {data}")
-    if id_client_transmitter in clients and id_client_communication == "0000000000" and data == "" and clients[id_client_transmitter] == "DISCONNECTED":
+    client = check_client(id_client_transmitter, clients)
+
+    if id_client_communication == "0000000000" and data == "" and client.state == "DISCONNECTED":
         random_number = str(randint(1000000000, 9999999999))
         
         # Open new UDP port
@@ -125,8 +144,8 @@ def register(package_type, id_client_transmitter, id_client_communication, data,
         bytes_sent = new_sock.sendto(pack_pdu('a1', server.id_server, random_number, newport), address)
         logging.info(f"PDU REG_ACK sent: {pack_pdu('a1', server.id_server, random_number, newport)}")
         logging.info(f"Bytes sent: {bytes_sent} to address {address}")
-        clients[id_client_transmitter] = "WAIT_INFO"
-        logging.info(f"Dispositiu {id_client_transmitter} passa a l'estat: {clients[id_client_transmitter]}")
+        client.state = "WAIT_INFO"
+        logging.info(f"Dispositiu {id_client_transmitter} passa a l'estat: {client.state}")
 
         input_sock = [new_sock]
         for i in range(z):
@@ -142,8 +161,8 @@ def register(package_type, id_client_transmitter, id_client_communication, data,
                     logging.info("OK")
                     return
 
-        clients[id_client_transmitter] = "DISCONNECTED"
-        logging.info(f"Client {id_client_transmitter} passa a l'estat: {clients[id_client_transmitter] perquè s'ha exhaurit el temps {z}")
+        client.state = "DISCONNECTED"
+        logging.info(f"Client {id_client_transmitter} passa a l'estat: {client.state} perquè s'ha exhaurit el temps {z}")
         # TANCAR SOCKET ???????
         new_sock.close()
 
@@ -155,7 +174,7 @@ def register(package_type, id_client_transmitter, id_client_communication, data,
     else:
         logging.info(pack_pdu('a3', server.id_server, "0000000000", "Rebuig de registre"))
         sock.sendto(pack_pdu('a3', server.id_server, "0000000000", "Rebuig de registre"), address)
-        clients[id_client_transmitter] = "DISCONNECTED"
+        client.state = "DISCONNECTED"
         logging.info(f"Client {id_client_transmitter} desconnectat per rebuig de registre: {clients}")
 
 
