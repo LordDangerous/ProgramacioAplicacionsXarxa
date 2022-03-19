@@ -70,11 +70,10 @@ def read_database():
 
 def handle_udp_packet(sock, clients, server):
     pdu_udp, address = read_udp(sock, 84)
-    logging.info(f"Connected by {address}")
     if pdu_udp.packet_type == 'a0':
         thread = threading.Thread(target=register, args=(pdu_udp, address, sock, clients, server))
         thread.start()
-    elif pdu_udp.packet_type == 'f6':
+    elif pdu_udp.packet_type == 'b0':
         thread = threading.Thread(target=handle_alive, args=(clients, server))
         thread.start()
     else:
@@ -151,18 +150,19 @@ def check_client_reg_info(data, client):
         logging.info(f"Afegit elements: {client.elements} al client: {client.id_client}\n")
 
 
-def handle_alive(clients, server):
+def handle_alive(pdu_udp, clients, server):
     # Open new UDP port
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    newport = server.udp_port + 1
-    sock.bind((HOST, newport))
+    server.udp_port += 1
+    sock.bind((HOST, server.udp_port))
 
     input_sock = [sock]
-    for i in range(w):
-        input_ready, output_ready, except_ready = select(input_sock, [], [], t)
+    for _ in range(w):
+        print(f"bucle for {w}")
+        input_ready, output_ready, except_ready = select(input_sock, [], [], 2)
 
         for sock in input_ready:
-            pdu_udp, address = read_udp(sock, 84)
+            pdu_udp, address = read_udp(new_sock, 84)
             logging.info("PAQUET ALIVE REBUT")
             logging.info(f"ID TRANSMITTER: {pdu_udp.id_transmitter}")
             logging.info(f"ID COMMUNICATION: {pdu_udp.id_communication}")
@@ -189,11 +189,11 @@ def register(pdu_udp, address, sock, clients, server):
 
             # Open new UDP port
             new_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            newport = server.udp_port + 1
-            new_sock.bind((HOST, newport))
+            server.udp_port += 1
+            new_sock.bind((HOST, server.udp_port))
 
-            bytes_sent = new_sock.sendto(pack_pdu('a1', server.id_server, random_number, newport), address)
-            logging.info(f"PDU REG_ACK sent -> id transmissor: {server.id_server}  id comunicació: {random_number}  dades: {newport}")
+            bytes_sent = new_sock.sendto(pack_pdu('a1', server.id_server, random_number, server.udp_port), address)
+            logging.info(f"PDU REG_ACK sent -> id transmissor: {server.id_server}  id comunicació: {random_number}  dades: {server.udp_port}")
             logging.info(f"Bytes sent: {bytes_sent} to address {address}")
             client.state = "WAIT_INFO"
             logging.info(f"Dispositiu {pdu_udp.id_transmitter} passa a l'estat: {client.state}\n")
@@ -231,8 +231,9 @@ def register(pdu_udp, address, sock, clients, server):
                                 client.state = "DISCONNECTED"
                                 logging.info(f"Dispositiu {pdu_udp.id_transmitter} passa a l'estat: {client.state}\n")
 
-            client.state = "DISCONNECTED"
-            logging.info(f"Client {pdu_udp.id_transmitter} passa a l'estat: {client.state} perquè s'ha exhaurit el temps {z}")
+            if client.state != "REGISTERED":
+                client.state = "DISCONNECTED"
+                logging.info(f"Client {pdu_udp.id_transmitter} passa a l'estat: {client.state} perquè s'ha exhaurit el temps {z}")
             new_sock.close()
 
         else:
