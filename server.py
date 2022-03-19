@@ -72,12 +72,12 @@ def read_database():
 def handle_udp_packet(sock, clients, server):
     pdu_udp, address = read_udp(sock, 84)
     client = check_client(pdu_udp.id_transmitter, clients)
-    if pdu_udp.packet_type == '0xa0':
+    if pdu_udp.packet_type == bytes.fromhex('a0'):
         thread = threading.Thread(target=register, args=(pdu_udp, address, sock, clients, server))
         thread.start()
-    elif client.state == "REGISTERED" and pdu_udp.packet_type == '0xb0':
+    elif client.state == "REGISTERED" and pdu_udp.packet_type == bytes.fromhex('b0'):
         #for _ in range(w):
-        thread = threading.Thread(target=handle_alive, args=(pdu_udp, clients, server))
+        thread = threading.Thread(target=handle_alive, args=(pdu_udp, address, clients, server))
         thread.start()
     else:
         logging.info("Packet desconegut")
@@ -112,7 +112,7 @@ def pack_pdu(package_type, id_client_transmitter, id_client_communication, data)
 
 def unpack_pdu(pdu):
     package_type, id_client_transmitter, id_client_communication, data = unpack('1s11s11s61s', pdu)
-    decoded_package_type = package_type.hex()
+    decoded_package_type = package_type
     decoded_id_client_transmitter = id_client_transmitter.decode("UTF-8").rstrip('\x00')
     decoded_id_client_communication = id_client_communication.decode("UTF-8").rstrip('\x00')
 
@@ -125,11 +125,11 @@ def unpack_pdu(pdu):
             logging.debug(f"B: {byte}")
     # decoded_data = data.decode("UTF-8").split('\x00', 1)[0]
     logging.info("-------------------------------- UNPACK PDU -----------------------------")
-    logging.info(f"Package type: {decoded_package_type} length: {len(decoded_package_type)}")
-    logging.info(f"id_client trasmitter: {decoded_id_client_transmitter} length: {len(decoded_id_client_transmitter)}")
+    logging.info(f"Package type: {decoded_package_type} -> length: {len(decoded_package_type)}")
+    logging.info(f"id_client trasmitter: {decoded_id_client_transmitter} -> length: {len(decoded_id_client_transmitter)}")
     logging.info(
-        f"id_client Communication: {decoded_id_client_communication}; length: {len(decoded_id_client_communication)}")
-    logging.info(f"Data: {decoded_data}; length: {len(decoded_data)}")
+        f"id_client Communication: {decoded_id_client_communication} -> length: {len(decoded_id_client_communication)}")
+    logging.info(f"Data: {decoded_data} -> length: {len(decoded_data)}")
     logging.info("------------------------------ END UNPACK PDU ---------------------------\n")
     return PduUdp(decoded_package_type, decoded_id_client_transmitter, decoded_id_client_communication, decoded_data)
 
@@ -152,16 +152,18 @@ def check_client_reg_info(data, client):
         logging.info(f"Afegit elements: {client.elements} al client: {client.id_client}\n")
 
 
-def handle_alive(pdu_udp, clients, server):
+def handle_alive(pdu_udp, address, clients, server):
     # Open new UDP port
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     server.udp_port += 1
     sock.bind((HOST, server.udp_port))
 
     input_sock = [sock]
-    input_ready, output_ready, except_ready = select(input_sock, [], [], 2)
-
+    
+    # input_ready, output_ready, except_ready = select(input_sock, [], [], 2)
     # for sock in input_ready:
+    
+    
     logging.info("PAQUET ALIVE REBUT")
     logging.info(f"ID TRANSMITTER: {pdu_udp.id_transmitter}")
     logging.info(f"ID COMMUNICATION: {pdu_udp.id_communication}")
@@ -170,17 +172,18 @@ def handle_alive(pdu_udp, clients, server):
     client = check_client(pdu_udp.id_transmitter, clients)
 
     if client is not None:
-        if pdu_udp.id_communication == server.id_server and pdu_udp.data == "":
-            logging.info("PAQUET ALIVE CORRECTE")
-            bytes_sent = sock.sendto(pack_pdu('b0', server.id_server, client.random_number, server.udp_port), address)
-            logging.info(
-                f"PDU REG_ACK sent -> id transmissor: {server.id_server}  id comunicació: {client.random_number}  dades: {server.udp_port}")
+        if pdu_udp.id_communication == client.random_number and pdu_udp.data == "":
+            bytes_sent = sock.sendto(pack_pdu('b0', server.id_server, client.random_number, client.id_client), address)
+            logging.info(f"PDU ALIVE sent -> id transmissor: {server.id_server}  id comunicació: {client.random_number}  dades: {client.id_client}")
             logging.info(f"Bytes sent: {bytes_sent} to address {address}")
             if client.state == "REGISTERED":
                 client.state = "SEND_ALIVE"
         else:
+            # MODIFICAR ALIVE_REJ AMD DADES CORRECTES (QUINES SON??)
             logging.info("PAQUET ALIVE INCORRECTE")
-            logging.info("ENVIAR PAQUET ALIVE_REJ")
+            bytes_sent = sock.sendto(pack_pdu('b2', server.id_server, client.random_number, client.id_client), address)
+            logging.info(f"PDU ALIVE_REJ sent -> id transmissor: {server.id_server}  id comunicació: {client.random_number}  dades: {server.udp_port}")
+            logging.info(f"Bytes sent: {bytes_sent} to address {address}")
             client.state = "DISCONNECTED"
     return
 
