@@ -74,7 +74,7 @@ def handle_udp_packet(sock, clients, server):
         thread = threading.Thread(target=register, args=(pdu_udp, address, sock, clients, server))
         thread.start()
     elif pdu_udp.packet_type == 'b0':
-        thread = threading.Thread(target=handle_alive, args=(clients, server))
+        thread = threading.Thread(target=handle_alive, args=(pdu_udp, clients, server))
         thread.start()
     else:
         logging.info("Packet desconegut")
