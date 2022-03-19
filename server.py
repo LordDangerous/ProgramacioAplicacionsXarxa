@@ -32,6 +32,14 @@ class Client:
         self.elements = elements
 
 
+class Pdu_udp:
+    def __init__(self, packet_type, id_transmitter, id_communication, data):
+        self.packet_type = packet_type
+        self.id_transmitter = id_transmitter
+        self.id_communication = id_communication
+        self.data = data
+
+
 def read_file():
     id_server = udp_port = tcp_port = None
     f = open("server.cfg", "r")
@@ -72,7 +80,14 @@ def read_database():
 
 def handle_udp_packet(sock, clients, server):
     package_type, id_client_transmitter, id_client_communication, data, address = read_udp(sock, 84)
-    register(package_type, id_client_transmitter, id_client_communication, data, address, sock, clients, server)
+    if packet_type == 'a0':
+        thread = threading.Thread(target=register, args=(package_type, id_client_transmitter, id_client_communication, data, address, sock, clients, server))
+        thread.start()
+    elif packet_type == 'f6':
+        thread = threading.Thread(target=handle_alive, args=(
+        thread.start()
+    
+    register()
 
 def read_udp(sock_udp, bytes):
     response = sock_udp.recvfrom(bytes)
@@ -144,7 +159,8 @@ def check_client_reg_info(data, client):
         logging.info(f"Afegit elements: {client.elements} al client: {client.id_client}\n")
 
 
-def handle_alive(input_sock, clients, server):
+def handle_alive(new_sock, clients, server):
+    input_sock = [new_sock]
     for i in range(w):
         input_ready, output_ready, except_ready = select(input_sock, [], [], t)
 
@@ -208,7 +224,6 @@ def register(package_type, id_client_transmitter, id_client_communication, data,
                             logging.info(f"Bytes sent: {bytes_sent} to address {address}")
                             client.state = "REGISTERED"
                             logging.info(f"Dispositiu {id_client_transmitter} passa a l'estat: {client.state}\n")
-                            handle_alive(input_sock, clients, server)
 
                         else:
                             logging.info("Paquet REG_INFO INCORRECTE")
@@ -257,11 +272,8 @@ def setup():
 
         for sock in input_ready:
             if sock == sock_udp:
-                thread = threading.Thread(target=handle_udp_packet, args=(sock, clients, server))
-                thread.start()
-                # handle_udp_packet(sock, clients, server)
-                # package_type, id_client_transmitter, id_client_communication, data, address = read_udp(sock, 84)
-                # register(package_type, id_client_transmitter, id_client_communication, data, address, sock, clients, server)
+                logging.info("Rebut paquet UDP, creat procés per atendre'l")
+                handle_udp_socket(
             elif sock == sock_tcp:
                 return
                 # Replica UDP no usable
