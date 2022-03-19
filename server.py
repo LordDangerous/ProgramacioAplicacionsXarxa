@@ -10,6 +10,7 @@ from struct import *
 HOST = 'localhost'  # Standard loopback interface address (localhost)
 z = 2
 t = 1
+w = 3
 
 # Logging config
 logging.basicConfig(format='%(asctime)s - %(levelname)s => %(message)s', datefmt='%H:%M:%S', level=logging.INFO)
@@ -72,7 +73,6 @@ def read_database():
 def handle_udp_packet(sock, clients, server):
     package_type, id_client_transmitter, id_client_communication, data, address = read_udp(sock, 84)
     register(package_type, id_client_transmitter, id_client_communication, data, address, sock, clients, server)
-
 
 def read_udp(sock_udp, bytes):
     response = sock_udp.recvfrom(bytes)
@@ -144,6 +144,26 @@ def check_client_reg_info(data, client):
         logging.info(f"Afegit elements: {client.elements} al client: {client.id_client}\n")
 
 
+def handle_alive(input_sock, clients, server):
+    for i in range(w):
+        input_ready, output_ready, except_ready = select(input_sock, [], [], t)
+
+        for sock in input_ready:
+            package_type, id_client_transmitter, id_client_communication, data, address = read_udp(sock, 84)
+            logging.info("PAQUET ALIVE REBUT")
+            logging.info(f"ID TRANSMITTER: {id_client_transmitter}")
+            logging.info(f"ID COMMUNICATION: {id_client_communication}")
+            logging.info(f"DATA: {data}\n")
+
+            client = check_client(id_client_transmitter, clients)
+
+            if client is not None:
+                if id_client_communication == server.id_server and data == "":
+                    logging.info("PAQUET ALIVE CORRECTE")
+                else:
+                    logging.info("PAQUET ALIVE INCORRECTE")
+            return
+
 
 def register(package_type, id_client_transmitter, id_client_communication, data, address, sock, clients, server):
     logging.info(
@@ -182,15 +202,16 @@ def register(package_type, id_client_transmitter, id_client_communication, data,
                     
                     if client is not None:
                         if None not in (client.tcp_port, client.elements) and id_client_communication == random_number:
-                            logging.info("Packet REG_INFO CORRECTE")
+                            logging.info("Paquet REG_INFO CORRECTE")
                             bytes_sent = new_sock.sendto(pack_pdu('a5', server.id_server, random_number, server.tcp_port), address)
                             logging.info(f"PDU INFO_ACK sent -> id transmissor: {server.id_server}  id comunicació: {random_number}  dades: {server.tcp_port}")
                             logging.info(f"Bytes sent: {bytes_sent} to address {address}")
                             client.state = "REGISTERED"
                             logging.info(f"Dispositiu {id_client_transmitter} passa a l'estat: {client.state}\n")
+                            handle_alive(input_sock, clients, server)
 
                         else:
-                            logging.info("Packet REG_INFO INCORRECTE")
+                            logging.info("Paquet REG_INFO INCORRECTE")
                             bytes_sent = new_sock.sendto(pack_pdu('a6', server.id_server, random_number, "Error en packet addicional de registre"), address)
                             logging.info(f"PDU INFO_ACK sent -> id transmissor: {server.id_server}  id comunicació: {random_number}  dades: 'Error en packet addicional de registre'")
                             logging.info(f"Bytes sent: {bytes_sent} to address {address}")
