@@ -276,6 +276,15 @@ def register(pdu_udp, address, sock, clients, server):
     return
 
 
+def check_3_alives(clients):
+    while True:
+        for client in clients:
+            print(1)
+            if client.state == "SEND_ALIVE" and time.time() - client.counter_alive >= 6:
+                client.state = "DISCONNECTED"
+                logging.info(f"Client {client.id_client} desconnectat per no enviar 3 ALIVE consecutius")
+
+
 def setup():
     server = read_file()
     clients = read_database()
@@ -290,14 +299,13 @@ def setup():
     sock_tcp.listen()
 
     input_socket = [sock_udp, sock_tcp, sys.stdin.fileno()]
+    
+    #Check 3 ALIVES
+    thread = threading.Thread(target=check_3_alives, args=(clients))
+    thread.start()
 
     while True:
-        #Check 3 ALIVE
-        for client in clients:
-            if client.state == "SEND_ALIVE" and time.time() - client.counter_alive >= 6:
-                client.state = "DISCONNECTED"
-                logging.info(f"Client {client.id_client} desconnectat per no enviar 3 ALIVE consecutius")
-
+    
         input_ready, output_ready, except_ready = select(input_socket, [], [])
 
         for sock in input_ready:
