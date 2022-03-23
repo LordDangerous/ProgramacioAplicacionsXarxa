@@ -202,6 +202,7 @@ def check_client_is_operational(pdu_udp, address, client, server):
         handle_alive(pdu_udp, address, client, server)
     else:
         client.state = "DISCONNECTED"
+        logging.info(f"Client {client.id_client} desconnectat per no enviar 3 ALIVE consecutius")
         return
 
 
