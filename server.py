@@ -1,6 +1,7 @@
 import socket
 import sys
 import threading
+import time
 from random import *
 import logging
 
@@ -25,12 +26,14 @@ class Server:
 
 
 class Client:
-    def __init__(self, id_client, state=None, tcp_port=None, elements=None, random_number=None):
+    def __init__(self, id_client, state=None, tcp_port=None, elements=None, random_number=None, time_alive=None, counter_alive=None):
         self.id_client = id_client
         self.state = state
         self.tcp_port = tcp_port
         self.elements = elements
         self.random_number = random_number
+        self.time_alive = time_alive
+        self.counter_alive = counter_alive
 
 
 class PduUdp:
@@ -76,8 +79,10 @@ def handle_udp_packet(sock, clients, server):
         thread = threading.Thread(target=register, args=(pdu_udp, address, sock, clients, server))
         thread.start()
     elif client.state == "REGISTERED" and pdu_udp.packet_type == bytes.fromhex('b0'):
-        #for _ in range(w):
         thread = threading.Thread(target=handle_alive, args=(pdu_udp, address, clients, server))
+        thread.start()
+    elif client.state == "SEND_ALIVE" and pdu_udp.packet_type == bytes.fromhex('b0'):
+        thread = threading.Thread(target=check_client_is_operational, args=(client))
         thread.start()
     else:
         logging.info("Packet desconegut")
@@ -172,20 +177,31 @@ def handle_alive(pdu_udp, address, clients, server):
     client = check_client(pdu_udp.id_transmitter, clients)
 
     if client is not None:
-        if pdu_udp.id_communication == client.random_number and pdu_udp.data == "":
+        logging.info(f"Temps client: {client.time_alive} i temps actual: {time.time()}")
+        if pdu_udp.id_communication == client.random_number and pdu_udp.data == "" and client.time_alive != 0 and time.time() - client.time_alive < w:
             bytes_sent = sock.sendto(pack_pdu('b0', server.id_server, client.random_number, client.id_client), address)
-            logging.info(f"PDU ALIVE sent -> id transmissor: {server.id_server}  id comunicació: {client.random_number}  dades: {client.id_client}")
+            logging.info(f"PDU ALIVE sent -> id transmissor: {server.id_server}  id comunicació: {client.random_number} dades: {client.id_client}")
             logging.info(f"Bytes sent: {bytes_sent} to address {address}")
             if client.state == "REGISTERED":
                 client.state = "SEND_ALIVE"
+                #Només mirar 3 segons el primer cop
+                client.time_alive = 0
         else:
             # MODIFICAR ALIVE_REJ AMD DADES CORRECTES (QUINES SON??)
             logging.info("PAQUET ALIVE INCORRECTE")
-            bytes_sent = sock.sendto(pack_pdu('b2', server.id_server, client.random_number, client.id_client), address)
-            logging.info(f"PDU ALIVE_REJ sent -> id transmissor: {server.id_server}  id comunicació: {client.random_number}  dades: {server.udp_port}")
+            bytes_sent = sock.sendto(pack_pdu('b2', server.id_server, client.random_number, "Rebuig de ALIVE"), address)
+            logging.info(f"PDU ALIVE_REJ sent -> id transmissor: {server.id_server}  id comunicació: {client.random_number}  dades: Rebuig de ALIVE")
             logging.info(f"Bytes sent: {bytes_sent} to address {address}")
             client.state = "DISCONNECTED"
     return
+
+
+# def check_client_is_operational(client):
+#     if client.counter_alive < 3:
+#         client.counter_alive += 1
+
+
+
 
 
 def register(pdu_udp, address, sock, clients, server):
@@ -230,6 +246,7 @@ def register(pdu_udp, address, sock, clients, server):
                             logging.info(f"PDU INFO_ACK sent -> id transmissor: {server.id_server}  id comunicació: {client.random_number}  dades: {server.tcp_port}")
                             logging.info(f"Bytes sent: {bytes_sent} to address {address}")
                             client.state = "REGISTERED"
+                            client.time_alive = time.time()
                             logging.info(f"Dispositiu {pdu_udp.id_transmitter} passa a l'estat: {client.state}\n")
 
                         else:
