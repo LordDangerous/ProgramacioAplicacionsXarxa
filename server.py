@@ -75,7 +75,7 @@ def read_database():
 def handle_udp_packet(sock, clients, server):
     pdu_udp, address = read_udp(sock, 84)
     client = check_client(pdu_udp.id_transmitter, clients)
-    if pdu_udp.packet_type == bytes.fromhex('a0'):
+    if client.state == "DISCONNECTED" and pdu_udp.packet_type == bytes.fromhex('a0'):
         thread = threading.Thread(target=register, args=(pdu_udp, address, sock, clients, server))
         thread.start()
     elif client.state == "REGISTERED" and pdu_udp.packet_type == bytes.fromhex('b0'):
@@ -177,7 +177,7 @@ def handle_alive(pdu_udp, address, client, server):
 
     if client is not None:
         logging.info(f"Temps client: {client.time_alive} i temps actual: {time.time()}")
-        if pdu_udp.id_communication == client.random_number and pdu_udp.data == "" and client.time_alive != 0 and (time.time() - client.time_alive < w or client.time_alive == 0):
+        if pdu_udp.id_communication == client.random_number and pdu_udp.data == "" and (time.time() - client.time_alive < w or client.time_alive == 0):
             bytes_sent = sock.sendto(pack_pdu('b0', server.id_server, client.random_number, client.id_client), address)
             logging.info(f"PDU ALIVE sent -> id transmissor: {server.id_server}  id comunicació: {client.random_number} dades: {client.id_client}")
             logging.info(f"Bytes sent: {bytes_sent} to address {address}")
@@ -197,13 +197,9 @@ def handle_alive(pdu_udp, address, client, server):
 
 
 def check_client_is_operational(pdu_udp, address, client, server):
-    if time.time() - client.counter_alive < 6:
+    if time.time() - client.counter_alive <= 6:
         client.counter_alive = time.time()
         handle_alive(pdu_udp, address, client, server)
-    else:
-        client.state = "DISCONNECTED"
-        logging.info(f"Client {client.id_client} desconnectat per no enviar 3 ALIVE consecutius")
-        return
 
 
 def register(pdu_udp, address, sock, clients, server):
@@ -279,7 +275,10 @@ def register(pdu_udp, address, sock, clients, server):
 def check_3_alive(clients):
     while True:
         for client in clients:
-            if client.state == "SEND_ALIVE" and time.time() - client.counter_alive >= 6:
+            if client.state == "REGISTERED" and time.time() - client.time_alive > 3 and client.time_alive != 0:
+                client.state = "DISCONNECTED"
+                logging.info(f"Dispositiu {client.id_client} no ha rebut el primer ALIVE en 3 segons")
+            if client.state == "SEND_ALIVE" and time.time() - client.counter_alive > 6:
                 client.state = "DISCONNECTED"
                 logging.info(f"Client {client.id_client} desconnectat per no enviar 3 ALIVE consecutius")
 
