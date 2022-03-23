@@ -276,10 +276,9 @@ def register(pdu_udp, address, sock, clients, server):
     return
 
 
-def check_3_alives(clients):
+def check_3_alive(clients):
     while True:
         for client in clients:
-            print(1)
             if client.state == "SEND_ALIVE" and time.time() - client.counter_alive >= 6:
                 client.state = "DISCONNECTED"
                 logging.info(f"Client {client.id_client} desconnectat per no enviar 3 ALIVE consecutius")
@@ -301,7 +300,7 @@ def setup():
     input_socket = [sock_udp, sock_tcp, sys.stdin.fileno()]
     
     #Check 3 ALIVES
-    thread = threading.Thread(target=check_3_alives, args=(clients))
+    thread = threading.Thread(target=check_3_alive, args=(clients,))
     thread.start()
 
     while True:
