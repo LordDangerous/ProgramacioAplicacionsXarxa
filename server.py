@@ -79,10 +79,10 @@ def handle_udp_packet(sock, clients, server):
         thread = threading.Thread(target=register, args=(pdu_udp, address, sock, clients, server))
         thread.start()
     elif client.state == "REGISTERED" and pdu_udp.packet_type == bytes.fromhex('b0'):
-        thread = threading.Thread(target=handle_alive, args=(pdu_udp, address, clients, server))
+        thread = threading.Thread(target=handle_alive, args=(pdu_udp, address, client, server))
         thread.start()
     elif client.state == "SEND_ALIVE" and pdu_udp.packet_type == bytes.fromhex('b0'):
-        thread = threading.Thread(target=check_client_is_operational, args=(client))
+        thread = threading.Thread(target=check_client_is_operational, args=(pdu_udp, address, client, server))
         thread.start()
     else:
         logging.info("Packet desconegut")
@@ -157,7 +157,7 @@ def check_client_reg_info(data, client):
         logging.info(f"Afegit elements: {client.elements} al client: {client.id_client}\n")
 
 
-def handle_alive(pdu_udp, address, clients, server):
+def handle_alive(pdu_udp, address, client, server):
     # Open new UDP port
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     server.udp_port += 1
@@ -174,16 +174,16 @@ def handle_alive(pdu_udp, address, clients, server):
     logging.info(f"ID COMMUNICATION: {pdu_udp.id_communication}")
     logging.info(f"DATA: {pdu_udp.data}\n")
 
-    client = check_client(pdu_udp.id_transmitter, clients)
 
     if client is not None:
         logging.info(f"Temps client: {client.time_alive} i temps actual: {time.time()}")
-        if pdu_udp.id_communication == client.random_number and pdu_udp.data == "" and client.time_alive != 0 and time.time() - client.time_alive < w:
+        if pdu_udp.id_communication == client.random_number and pdu_udp.data == "" and client.time_alive != 0 and (time.time() - client.time_alive < w or client.time_alive == 0):
             bytes_sent = sock.sendto(pack_pdu('b0', server.id_server, client.random_number, client.id_client), address)
             logging.info(f"PDU ALIVE sent -> id transmissor: {server.id_server}  id comunicació: {client.random_number} dades: {client.id_client}")
             logging.info(f"Bytes sent: {bytes_sent} to address {address}")
             if client.state == "REGISTERED":
                 client.state = "SEND_ALIVE"
+                client.counter_alive = time.time()
                 #Només mirar 3 segons el primer cop
                 client.time_alive = 0
         else:
@@ -196,12 +196,13 @@ def handle_alive(pdu_udp, address, clients, server):
     return
 
 
-# def check_client_is_operational(client):
-#     if client.counter_alive < 3:
-#         client.counter_alive += 1
-
-
-
+def check_client_is_operational(pdu_udp, address, client, server):
+    if time.time() - client.counter_alive < 6:
+        client.counter_alive = time.time()
+        handle_alive(pdu_udp, address, client, server)
+    else:
+        client.state = "DISCONNECTED"
+        return
 
 
 def register(pdu_udp, address, sock, clients, server):
