@@ -258,7 +258,8 @@ def register(pdu_udp, address, sock, clients, server):
                                 client.state = "DISCONNECTED"
                                 logging.info(f"Dispositiu {pdu_udp.id_transmitter} passa a l'estat: {client.state}\n")
 
-            if client.state != "REGISTERED":
+            if client.state != "REGISTERED" and client.state != "SEND_ALIVE":
+                logging.info(f"{client.state}")
                 client.state = "DISCONNECTED"
                 logging.info(f"Client {pdu_udp.id_transmitter} passa a l'estat: {client.state} perquè s'ha exhaurit el temps {z}")
             new_sock.close()
