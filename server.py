@@ -26,7 +26,7 @@ class Server:
 
 
 class Client:
-    def __init__(self, id_client, state=None, tcp_port=None, elements=None, random_number=None, time_alive=None, counter_alive=None, num_alive=0):
+    def __init__(self, id_client, state=None, tcp_port=None, elements=None, random_number=None, time_alive=None, counter_alive=None):
         self.id_client = id_client
         self.state = state
         self.tcp_port = tcp_port
@@ -34,7 +34,6 @@ class Client:
         self.random_number = random_number
         self.time_alive = time_alive
         self.counter_alive = counter_alive
-        self.num_alive = num_alive
 
 
 class PduUdp:
@@ -43,6 +42,16 @@ class PduUdp:
         self.id_transmitter = id_transmitter
         self.id_communication = id_communication
         self.data = data
+
+
+class PduTcp:
+    def __init__(self, packet_type, id_transmitter, id_communication, element, value, info):
+        self.packet_type = packet_type
+        self.id_transmitter = id_transmitter
+        self.id_communication = id_communication
+        self.element = element
+        self.value = value
+        self.info = info
 
 
 def read_file():
@@ -90,35 +99,47 @@ def handle_udp_packet(sock, clients, server):
         return
 
 
+def handle_tcp_packet(sock, clients, server):
+    pdu_tcp, conn, address = read_tcp(sock, 127)
+    client = check_client(pdu_tcp.id_transmitter, clients)
+    thread = threading.Thread(target=handle_send_data, args=(pdu_tcp, conn, address, sock, client, server))
+    thread.start()
+
+
 def read_udp(sock_udp, pdu_udp_bytes):
     response = sock_udp.recvfrom(pdu_udp_bytes)
     data = response[0]
     address = response[1]
-    pdu_udp = unpack_pdu(data)
+    pdu_udp = unpack_pdu_udp(data)
     return pdu_udp, address
 
     # sock_udp.sendto(data, address)
 
 
-def read_tcp(sock_tcp):
+def read_tcp(sock_tcp, pdu_tcp_bytes):
     conn, address = sock_tcp.accept()
     logging.info(f"Connected by {address}")
-    data_tcp = conn.recv(1024)
+    data_tcp = conn.recv(pdu_tcp_bytes)
     logging.info(data_tcp)
-    package_type, id_client_transmitter, id_client_communication, data = unpack_pdu(data_tcp)
-    return package_type, id_client_transmitter, id_client_communication, data, conn
+    pdu_tcp = unpack_pdu_tcp(data_tcp)
+    return pdu_tcp, conn, address
 
     # conn.sendall(data_tcp)
 
 
-def pack_pdu(package_type, id_client_transmitter, id_client_communication, data):
+def pack_pdu_udp(package_type, id_client_transmitter, id_client_communication, data):
     return pack("1s11s11s61s", bytes.fromhex(package_type), bytes(id_client_transmitter, "UTF-8"),
                 bytes(str(id_client_communication), "UTF-8"), bytes(str(data), "UTF-8"))
 
 
-def unpack_pdu(pdu):
+def pack_pdu_tcp(package_type, id_client_transmitter, id_client_communication, element, value, info):
+    return pack("1s11s11s8s16s80s", bytes.fromhex(package_type), bytes(id_client_transmitter, "UTF-8"),
+                bytes(str(id_client_communication), "UTF-8"), bytes(str(element), "UTF-8"), bytes(str(value), "UTF-8"),
+                bytes(str(info), "UTF-8"))
+
+
+def unpack_pdu_udp(pdu):
     package_type, id_client_transmitter, id_client_communication, data = unpack('1s11s11s61s', pdu)
-    decoded_package_type = package_type
     decoded_id_client_transmitter = id_client_transmitter.decode("UTF-8").rstrip('\x00')
     decoded_id_client_communication = id_client_communication.decode("UTF-8").rstrip('\x00')
 
@@ -131,12 +152,38 @@ def unpack_pdu(pdu):
             logging.debug(f"B: {byte}")
     # decoded_data = data.decode("UTF-8").split('\x00', 1)[0]
     # logging.info("-------------------------------- UNPACK PDU -----------------------------")
-    # logging.info(f"Package type: {decoded_package_type} -> length: {len(decoded_package_type)}")
+    # logging.info(f"Package type: {package_type} -> length: {len(package_type)}")
     # logging.info(f"id_client trasmitter: {decoded_id_client_transmitter} -> length: {len(decoded_id_client_transmitter)}")
     # logging.info(f"id_client Communication: {decoded_id_client_communication} -> length: {len(decoded_id_client_communication)}")
     # logging.info(f"Data: {decoded_data} -> length: {len(decoded_data)}")
     # logging.info("------------------------------ END UNPACK PDU ---------------------------\n")
-    return PduUdp(decoded_package_type, decoded_id_client_transmitter, decoded_id_client_communication, decoded_data)
+    return PduUdp(package_type, decoded_id_client_transmitter, decoded_id_client_communication, decoded_data)
+
+
+def unpack_pdu_tcp(pdu):
+    package_type, id_client_transmitter, id_client_communication, element, value, info = unpack('1s11s11s8s16s80s', pdu)
+    decoded_id_client_transmitter = id_client_transmitter.decode("UTF-8").rstrip('\x00')
+    decoded_id_client_communication = id_client_communication.decode("UTF-8").rstrip('\x00')
+    decoded_element = element.decode("UTF-8").rstrip('\x00')
+    decoded_value = value.decode("UTF-8").rstrip('\x00')
+
+    decoded_info = ""
+    for byte in info:
+        if byte == 0:
+            break
+        else:
+            decoded_info += chr(byte)
+            logging.debug(f"B: {byte}")
+
+    logging.info("-------------------------------- UNPACK PDU TCP -----------------------------")
+    logging.info(f"Package type: {package_type} -> length: {len(package_type)}")
+    logging.info(f"id_client trasmitter: {decoded_id_client_transmitter} -> length: {len(decoded_id_client_transmitter)}")
+    logging.info(f"id_client Communication: {decoded_id_client_communication} -> length: {len(decoded_id_client_communication)}")
+    logging.info(f"Element: {decoded_element} -> length: {len(decoded_element)}")
+    logging.info(f"Value: {decoded_value} -> length: {len(decoded_value)}")
+    logging.info(f"Info: {decoded_info} -> length: {len(decoded_info)}")
+    logging.info("------------------------------ END UNPACK PDU TCP ---------------------------\n")
+    return PduTcp(package_type, decoded_id_client_transmitter, decoded_id_client_communication, decoded_element, decoded_value, decoded_info)
 
 
 def check_client(id_client_transmitter, clients):
@@ -178,7 +225,7 @@ def handle_alive(pdu_udp, address, client, server):
     if client is not None:
         logging.info(f"Temps client: {client.time_alive} i temps actual: {time.time()}")
         if pdu_udp.id_communication == client.random_number and pdu_udp.data == "" and (time.time() - client.time_alive < w or client.time_alive == 0):
-            bytes_sent = sock.sendto(pack_pdu('b0', server.id_server, client.random_number, client.id_client), address)
+            bytes_sent = sock.sendto(pack_pdu_udp('b0', server.id_server, client.random_number, client.id_client), address)
             logging.info(f"PDU ALIVE sent -> id transmissor: {server.id_server}  id comunicació: {client.random_number} dades: {client.id_client}")
             logging.info(f"Bytes sent: {bytes_sent} to address {address}")
             if client.state == "REGISTERED":
@@ -189,7 +236,7 @@ def handle_alive(pdu_udp, address, client, server):
         else:
             # MODIFICAR ALIVE_REJ AMD DADES CORRECTES (QUINES SON??)
             logging.info("PAQUET ALIVE INCORRECTE")
-            bytes_sent = sock.sendto(pack_pdu('b2', server.id_server, client.random_number, "Rebuig de ALIVE"), address)
+            bytes_sent = sock.sendto(pack_pdu_udp('b2', server.id_server, client.random_number, "Rebuig de ALIVE"), address)
             logging.info(f"PDU ALIVE_REJ sent -> id transmissor: {server.id_server}  id comunicació: {client.random_number}  dades: Rebuig de ALIVE")
             logging.info(f"Bytes sent: {bytes_sent} to address {address}")
             client.state = "DISCONNECTED"
@@ -199,8 +246,18 @@ def handle_alive(pdu_udp, address, client, server):
 def check_client_is_operational(pdu_udp, address, client, server):
     if time.time() - client.counter_alive <= 6:
         client.counter_alive = time.time()
-        client.num_alive += 1
         handle_alive(pdu_udp, address, client, server)
+
+
+def handle_send_data(pdu_tcp, conn, address, sock, client, server):
+    if client.state == "SEND_ALIVE" and pdu_tcp.packet_type == bytes.fromhex('c0'):
+        for element in client.elements:
+            if pdu_tcp.id_communication == client.random_number and pdu_tcp.element == element:
+                # EMMAGATZEMAR DADES A DISC
+                bytes_sent = sock.send(pack_pdu_tcp('c1', server.id_server, pdu_tcp.elements, pdu_tcp.value, pdu_tcp.info))
+
+
+
 
 
 def register(pdu_udp, address, sock, clients, server):
@@ -217,7 +274,7 @@ def register(pdu_udp, address, sock, clients, server):
             server.udp_port += 1
             new_sock.bind((HOST, server.udp_port))
 
-            bytes_sent = new_sock.sendto(pack_pdu('a1', server.id_server, client.random_number, server.udp_port), address)
+            bytes_sent = new_sock.sendto(pack_pdu_udp('a1', server.id_server, client.random_number, server.udp_port), address)
             logging.info(f"PDU REG_ACK sent -> id transmissor: {server.id_server}  id comunicació: {client.random_number}  dades: {server.udp_port}")
             logging.info(f"Bytes sent: {bytes_sent} to address {address}")
             client.state = "WAIT_INFO"
@@ -241,7 +298,7 @@ def register(pdu_udp, address, sock, clients, server):
                     if client is not None:
                         if None not in (client.tcp_port, client.elements) and pdu_udp.id_communication == client.random_number:
                             logging.info("Paquet REG_INFO CORRECTE")
-                            bytes_sent = new_sock.sendto(pack_pdu('a5', server.id_server, client.random_number, server.tcp_port), address)
+                            bytes_sent = new_sock.sendto(pack_pdu_udp('a5', server.id_server, client.random_number, server.tcp_port), address)
                             logging.info(f"PDU INFO_ACK sent -> id transmissor: {server.id_server}  id comunicació: {client.random_number}  dades: {server.tcp_port}")
                             logging.info(f"Bytes sent: {bytes_sent} to address {address}")
                             client.state = "REGISTERED"
@@ -250,7 +307,7 @@ def register(pdu_udp, address, sock, clients, server):
 
                         else:
                             logging.info("Paquet REG_INFO INCORRECTE")
-                            bytes_sent = new_sock.sendto(pack_pdu('a6', server.id_server, client.random_number, "Error en packet addicional de registre"), address)
+                            bytes_sent = new_sock.sendto(pack_pdu_udp('a6', server.id_server, client.random_number, "Error en packet addicional de registre"), address)
                             logging.info(f"PDU INFO_ACK sent -> id transmissor: {server.id_server}  id comunicació: {client.random_number}  dades: 'Error en packet addicional de registre'")
                             logging.info(f"Bytes sent: {bytes_sent} to address {address}")
                             if client is not None:
@@ -264,8 +321,8 @@ def register(pdu_udp, address, sock, clients, server):
             new_sock.close()
 
         else:
-            logging.debug(pack_pdu('a3', server.id_server, "0000000000", "Error en els camps del paquet de registre"))
-            sock.sendto(pack_pdu('a3', server.id_server, "0000000000", "Error en els camps del paquet de registre"), address)
+            logging.debug(pack_pdu_udp('a3', server.id_server, "0000000000", "Error en els camps del paquet de registre"))
+            sock.sendto(pack_pdu_udp('a3', server.id_server, "0000000000", "Error en els camps del paquet de registre"), address)
             if client is not None:
                 client.state = "DISCONNECTED"
                 logging.info(f"Client {pdu_udp.id_transmitter} desconnectat error en els camps del paquet de registre: {client.state}")
@@ -276,18 +333,13 @@ def register(pdu_udp, address, sock, clients, server):
 def check_3_alive(clients):
     while True:
         for client in clients:
+            logging.info(f"{time.time() - client.counter_alive}")
             if client.state == "REGISTERED" and time.time() - client.time_alive > 3 and client.time_alive != 0:
                 client.state = "DISCONNECTED"
                 logging.info(f"Dispositiu {client.id_client} no ha rebut el primer ALIVE en 3 segons")
-            if client.state == "SEND_ALIVE" and time.time() - client.counter_alive > 6 and client.num_alive == 0:
-                logging.info(f"{time.time() - client.counter_alive} {client.counter_alive}")
+            if client.state == "SEND_ALIVE" and time.time() - client.counter_alive > 6:
                 client.state = "DISCONNECTED"
                 logging.info(f"Client {client.id_client} desconnectat per no enviar 3 ALIVE consecutius")
-            elif client.state == "SEND_ALIVE" and time.time() - client.counter_alive > (6 - client.num_alive * 2):
-                logging.info(f"RESET TIMER {time.time() - client.counter_alive}")
-                client.counter_alive = time.time()
-                logging.info(f"Número ALIVE's: {client.num_alive}")
-                client.num_alive = 0
 
 
 def setup():
@@ -318,7 +370,8 @@ def setup():
                 logging.info("Rebut paquet UDP, creat procés per atendre'l")
                 handle_udp_packet(sock, clients, server)
             elif sock == sock_tcp:
-                return
+                logging.info("Rebut paquet TCP, creat procés per atendre'l")
+                handle_tcp_packet(sock, clients, server)
                 # Replica UDP no usable
                 # package_type, id_client_transmitter, id_client_communication, data, conn = read_tcp(sock)
                 # register(package_type, id_client_transmitter, id_client_communication, data, conn, clients, server)
