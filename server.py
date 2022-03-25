@@ -26,7 +26,7 @@ class Server:
 
 
 class Client:
-    def __init__(self, id_client, state=None, tcp_port=None, elements=None, random_number=None, time_alive=None, counter_alive=None):
+    def __init__(self, id_client, state=None, tcp_port=None, elements=None, random_number=None, time_alive=None, counter_alive=None, num_alive=0):
         self.id_client = id_client
         self.state = state
         self.tcp_port = tcp_port
@@ -34,6 +34,7 @@ class Client:
         self.random_number = random_number
         self.time_alive = time_alive
         self.counter_alive = counter_alive
+        self.num_alive = num_alive
 
 
 class PduUdp:
@@ -199,6 +200,7 @@ def handle_alive(pdu_udp, address, client, server):
 def check_client_is_operational(pdu_udp, address, client, server):
     if time.time() - client.counter_alive <= 6:
         client.counter_alive = time.time()
+        client.num_alive += 1
         handle_alive(pdu_udp, address, client, server)
 
 
@@ -278,9 +280,12 @@ def check_3_alive(clients):
             if client.state == "REGISTERED" and time.time() - client.time_alive > 3 and client.time_alive != 0:
                 client.state = "DISCONNECTED"
                 logging.info(f"Dispositiu {client.id_client} no ha rebut el primer ALIVE en 3 segons")
-            if client.state == "SEND_ALIVE" and time.time() - client.counter_alive > 6:
+            if client.state == "SEND_ALIVE" and time.time() - client.counter_alive > 6 and client.num_alive == 0:
                 client.state = "DISCONNECTED"
                 logging.info(f"Client {client.id_client} desconnectat per no enviar 3 ALIVE consecutius")
+            elif client.state == "SEND_ALIVE" and time.time() - client.counter_alive > 6:
+                client.counter_alive = time.time()
+                client.num_alive = 0
 
 
 def setup():
