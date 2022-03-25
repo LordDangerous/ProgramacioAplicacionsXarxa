@@ -130,13 +130,12 @@ def unpack_pdu(pdu):
             decoded_data += chr(byte)
             logging.debug(f"B: {byte}")
     # decoded_data = data.decode("UTF-8").split('\x00', 1)[0]
-    logging.info("-------------------------------- UNPACK PDU -----------------------------")
-    logging.info(f"Package type: {decoded_package_type} -> length: {len(decoded_package_type)}")
-    logging.info(f"id_client trasmitter: {decoded_id_client_transmitter} -> length: {len(decoded_id_client_transmitter)}")
-    logging.info(
-        f"id_client Communication: {decoded_id_client_communication} -> length: {len(decoded_id_client_communication)}")
-    logging.info(f"Data: {decoded_data} -> length: {len(decoded_data)}")
-    logging.info("------------------------------ END UNPACK PDU ---------------------------\n")
+    # logging.info("-------------------------------- UNPACK PDU -----------------------------")
+    # logging.info(f"Package type: {decoded_package_type} -> length: {len(decoded_package_type)}")
+    # logging.info(f"id_client trasmitter: {decoded_id_client_transmitter} -> length: {len(decoded_id_client_transmitter)}")
+    # logging.info(f"id_client Communication: {decoded_id_client_communication} -> length: {len(decoded_id_client_communication)}")
+    # logging.info(f"Data: {decoded_data} -> length: {len(decoded_data)}")
+    # logging.info("------------------------------ END UNPACK PDU ---------------------------\n")
     return PduUdp(decoded_package_type, decoded_id_client_transmitter, decoded_id_client_communication, decoded_data)
 
 
@@ -281,10 +280,13 @@ def check_3_alive(clients):
                 client.state = "DISCONNECTED"
                 logging.info(f"Dispositiu {client.id_client} no ha rebut el primer ALIVE en 3 segons")
             if client.state == "SEND_ALIVE" and time.time() - client.counter_alive > 6 and client.num_alive == 0:
+                logging.info(f"{time.time() - client.counter_alive} {client.counter_alive}")
                 client.state = "DISCONNECTED"
                 logging.info(f"Client {client.id_client} desconnectat per no enviar 3 ALIVE consecutius")
-            elif client.state == "SEND_ALIVE" and time.time() - client.counter_alive > 6:
+            elif client.state == "SEND_ALIVE" and time.time() - client.counter_alive > (6 - client.num_alive * 2):
+                logging.info(f"RESET TIMER {time.time() - client.counter_alive}")
                 client.counter_alive = time.time()
+                logging.info(f"Número ALIVE's: {client.num_alive}")
                 client.num_alive = 0
 
 
