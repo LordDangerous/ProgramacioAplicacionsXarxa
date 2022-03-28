@@ -103,7 +103,7 @@ def handle_udp_packet(sock, clients, server):
 
 def handle_tcp_packet(sock, clients, server):
     pdu_tcp, conn, address = read_tcp(sock, 127)
-    thread = threading.Thread(target=handle_send_data, args=(pdu_tcp, sock, clients, server))
+    thread = threading.Thread(target=handle_send_data, args=(pdu_tcp, sock, conn, clients, server))
     thread.start()
 
 
@@ -142,12 +142,12 @@ def tcp_connexion_limit(address):
 
 
 def pack_pdu_udp(package_type, id_client_transmitter, id_client_communication, data):
-    return pack("1s11s11s61s", bytes.fromhex(package_type), bytes(id_client_transmitter, "UTF-8"),
+    return pack("1s 11s 11s 61s", bytes.fromhex(package_type), bytes(id_client_transmitter, "UTF-8"),
                 bytes(str(id_client_communication), "UTF-8"), bytes(str(data), "UTF-8"))
 
 
 def pack_pdu_tcp(package_type, id_client_transmitter, id_client_communication, element, value, info):
-    return pack("1s11s11s8s16s80s", bytes.fromhex(package_type), bytes(id_client_transmitter, "UTF-8"), bytes(str(id_client_communication), "UTF-8"), bytes(str(element), "UTF-8"), bytes(str(value), "UTF-8"), bytes(str(info), "UTF-8"))
+    return pack("1s 11s 11s 8s 16s 80s", bytes.fromhex(package_type), bytes(id_client_transmitter, "UTF-8"), bytes(str(id_client_communication), "UTF-8"), bytes(str(element), "UTF-8"), bytes(str(value), "UTF-8"), bytes(str(info), "UTF-8"))
 
 
 def unpack_pdu_udp(pdu):
@@ -250,7 +250,7 @@ def handle_alive(pdu_udp, address, client, server):
         client.state = "DISCONNECTED"
 
 
-def handle_send_data(pdu_tcp, sock, clients, server):
+def handle_send_data(pdu_tcp, sock, conn, clients, server):
     client = check_client(pdu_tcp.id_transmitter, clients)
     client.time_tcp = time.time()
     if client is not None:
@@ -266,7 +266,7 @@ def handle_send_data(pdu_tcp, sock, clients, server):
                         
                         logging.info(pack_pdu_tcp('c1', server.id_server, client.random_number, pdu_tcp.element, pdu_tcp.value, client.id_client))
                         logging.info(f"PDU DATA_ACK sent -> id transmissor: {server.id_server}  id comunicació: {client.random_number} element: {pdu_tcp.element} value: {pdu_tcp.value} info: {client.id_client}")
-                        bytes_sent = sock.send(pack_pdu_tcp('c1', server.id_server, client.random_number, pdu_tcp.element, pdu_tcp.value, client.id_client))
+                        bytes_sent = conn.send(pack_pdu_tcp('c1', server.id_server, client.random_number, pdu_tcp.element, pdu_tcp.value, client.id_client))
                         logging.info(f"Bytes sent: {bytes_sent}\n")
 
                 if correct_element is False:
