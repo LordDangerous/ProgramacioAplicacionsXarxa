@@ -13,7 +13,6 @@ z = 2
 t = 1
 w = 3
 m = 3
-tcp_counter = 0
 
 # Logging config
 logging.basicConfig(format='%(asctime)s - %(levelname)s => %(message)s', datefmt='%H:%M:%S', level=logging.INFO)
@@ -103,8 +102,10 @@ def handle_udp_packet(sock, clients, server):
 
 def handle_tcp_packet(sock, clients, server):
     pdu_tcp, conn, address = read_tcp(sock, 127)
-    thread = threading.Thread(target=handle_send_data, args=(pdu_tcp, sock, conn, clients, server))
-    thread.start()
+    if pdu_tcp is not None:
+        thread = threading.Thread(target=handle_send_data, args=(pdu_tcp, sock, conn, clients, server))
+        thread.start()
+    return
 
 
 def read_udp(sock_udp, pdu_udp_bytes):
@@ -114,31 +115,23 @@ def read_udp(sock_udp, pdu_udp_bytes):
     pdu_udp = unpack_pdu_udp(data)
     return pdu_udp, address
 
-    # sock_udp.sendto(data, address)
-
 
 def read_tcp(sock_tcp, pdu_tcp_bytes):
     conn, address = sock_tcp.accept()
     logging.info(f"Rebuda connexió TCP de {address}")
-    global tcp_counter
-    tcp_counter = time.time()
-    thread = threading.Thread(target=tcp_connexion_limit, args=(address,))
-    thread.start()
-    data_tcp = conn.recv(pdu_tcp_bytes)
     pdu_tcp = None
-    logging.info(data_tcp)
-    if data_tcp == bytes():
-        # FIX SEND_DATA ERROR (TEST 9)
-        sock_tcp.close()
-    else:
-        tcp_counter = 0
+    timer = time.time()
+    tcp_counter = time.time()
+    data_tcp = conn.recv(pdu_tcp_bytes)
+    while len(data_tcp) == 0 and timer - tcp_counter <= m:
+        tcp_counter = time.time()
+        data_tcp = conn.recv(pdu_tcp_bytes)
+    if len(data_tcp) == pdu_tcp_bytes:
         pdu_tcp = unpack_pdu_tcp(data_tcp)
+    else:
+        logging.info(f"No s'han rebut dades per la comunicació TCP amb ip; {address} en {m} segons")
     return pdu_tcp, conn, address
 
-
-def tcp_connexion_limit(address):
-    if time.time() - tcp_counter > m and tcp_counter != 0:
-        logging.info(f"No s'han rebut dades per la comunicació TCP amb ip; {address} en {m} segons")
 
 
 def pack_pdu_udp(package_type, id_client_transmitter, id_client_communication, data):
