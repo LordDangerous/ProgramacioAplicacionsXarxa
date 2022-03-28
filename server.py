@@ -1,3 +1,4 @@
+from http import client
 import socket
 import sys
 import threading
@@ -103,9 +104,33 @@ def handle_udp_packet(sock, clients, server):
 def handle_tcp_packet(sock, clients, server):
     pdu_tcp, conn, address = read_tcp(sock, 127)
     if pdu_tcp is not None:
-        thread = threading.Thread(target=handle_send_data, args=(pdu_tcp, sock, conn, clients, server))
+        thread = threading.Thread(target=handle_send_data, args=(pdu_tcp, conn, clients, server))
         thread.start()
     return
+
+
+def handle_commands(server_input, clients, server):
+    input_splitted = server_input.split()
+    for i, word in enumerate(input_splitted):
+        input_splitted[i] = word
+
+    i = len(input_splitted)
+    server_command = input_splitted[0]
+    if server_command == "set":
+        if i == 4:
+            id_client = input_splitted[1]
+            id_element = input_splitted[2]
+            new_value = input_splitted[3]
+        else:
+            logging.info("Paràmetres incorrectes")
+    elif server_command == "get":
+        if i == 3:
+            id_client = input_splitted[1]
+            id_element = input_splitted[2]
+        else:
+            logging.info("Paràmetres incorrectes")
+    else:
+        logging.info("Comanda desconeguda")
 
 
 def read_udp(sock_udp, pdu_udp_bytes):
@@ -123,7 +148,7 @@ def read_tcp(sock_tcp, pdu_tcp_bytes):
     timer = time.time()
     tcp_counter = time.time()
     data_tcp = conn.recv(pdu_tcp_bytes)
-    while len(data_tcp) == 0 and timer - tcp_counter <= m:
+    while len(data_tcp) == 0 and tcp_counter - timer <= m:
         tcp_counter = time.time()
         data_tcp = conn.recv(pdu_tcp_bytes)
     if len(data_tcp) == pdu_tcp_bytes:
@@ -243,10 +268,10 @@ def handle_alive(pdu_udp, address, client, server):
         client.state = "DISCONNECTED"
 
 
-def handle_send_data(pdu_tcp, sock, conn, clients, server):
+def handle_send_data(pdu_tcp, conn, clients, server):
     client = check_client(pdu_tcp.id_transmitter, clients)
-    client.time_tcp = time.time()
     if client is not None:
+        client.time_tcp = time.time()
         if client.state == "SEND_ALIVE" and pdu_tcp.packet_type == 'c0':
             if pdu_tcp.id_communication == client.random_number:
                 correct_element = False
@@ -257,24 +282,24 @@ def handle_send_data(pdu_tcp, sock, conn, clients, server):
                         # EMMAGATZEMAR DADES A DISC
                         write_data(pdu_tcp, client)
                         
-                        logging.info(pack_pdu_tcp('c1', server.id_server, client.random_number, pdu_tcp.element, pdu_tcp.value, client.id_client))
+                        # logging.info(pack_pdu_tcp('c1', server.id_server, client.random_number, pdu_tcp.element, pdu_tcp.value, client.id_client))
                         logging.info(f"PDU DATA_ACK sent -> id transmissor: {server.id_server}  id comunicació: {client.random_number} element: {pdu_tcp.element} value: {pdu_tcp.value} info: {client.id_client}")
                         bytes_sent = conn.send(pack_pdu_tcp('c1', server.id_server, client.random_number, pdu_tcp.element, pdu_tcp.value, client.id_client))
                         logging.info(f"Bytes sent: {bytes_sent}\n")
 
                 if correct_element is False:
                     logging.info("PAQUET SEND_DATA INCORRECTE -> ELEMENT ERRONI")
-                    # VALUE INCORRECTE????????
-                    sock.send(pack_pdu_tcp('c3', server.id_server, pdu_tcp.id_communication, pdu_tcp.element, pdu_tcp.value, "Element no pertany al dispositiu"))
+                    conn.send(pack_pdu_tcp('c3', server.id_server, pdu_tcp.id_communication, pdu_tcp.element, pdu_tcp.value, "Element no pertany al dispositiu"))
                     logging.info(
                         f"PDU DATA_REJ sent -> id transmissor: {server.id_server}  id comunicació: {pdu_tcp.id_communication} element: {pdu_tcp.element} value: {pdu_tcp.value} info: Element no pertany al dispositiu")
             else:
                 logging.info("PAQUET SEND_DATA INCORRECTE -> ID COMUNICACIÓ ERRONI")
-                sock.send(pack_pdu_tcp('c3', server.id_server, "0000000000", pdu_tcp.element, pdu_tcp.value, "Error identificació dispositiu"))
+                conn.send(pack_pdu_tcp('c3', server.id_server, "0000000000", pdu_tcp.element, pdu_tcp.value, "Error identificació dispositiu"))
                 logging.info(f"PDU DATA_REJ sent -> id transmissor: {server.id_server}  id comunicació: '0000000000' element: {pdu_tcp.element} value: {pdu_tcp.value} info: Error identificació dispositiu")
+                client.state = "DISCONNECTED"
     else:
         logging.info("PAQUET SEND_DATA INCORRECTE -> ID TRANSMISSIÓ ERRONI")
-        sock.send(pack_pdu_tcp('c3', server.id_server, "0000000000", "", "", "Dispositiu no autoritzat"))
+        conn.send(pack_pdu_tcp('c3', server.id_server, "0000000000", "", "", "Dispositiu no autoritzat"))
         logging.info(f"PDU DATA_REJ sent -> id transmissor: {server.id_server}  id comunicació: '0000000000' element: '' value: '' info: Dispositiu no autoritzat")
 
 
@@ -390,7 +415,8 @@ def setup():
                 # package_type, id_client_transmitter, id_client_communication, data, conn = read_tcp(sock)
                 # register(package_type, id_client_transmitter, id_client_communication, data, conn, clients, server)
             elif sock == sys.stdin.fileno():
-                sys.stdout.write("HELLOO")
+                server_input = input()
+                handle_commands(server_input, clients, server)
             else:
                 logging.info(f"\nUnknown socket: {sock}")
                 
