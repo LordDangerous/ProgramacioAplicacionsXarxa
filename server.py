@@ -14,6 +14,7 @@ z = 2
 t = 1
 w = 3
 m = 3
+quit = False
 
 # Logging config
 logging.basicConfig(format='%(asctime)s - %(levelname)s => %(message)s', datefmt='%H:%M:%S', level=logging.INFO)
@@ -99,17 +100,34 @@ def handle_udp_packet(sock, clients, server):
         else:
             logging.info("Packet desconegut")
             return
+    else:
+        logging.info(f"Client desconegut")
 
 
 def handle_tcp_packet(sock, clients, server):
     pdu_tcp, conn, address = read_tcp(sock, 127)
     if pdu_tcp is not None:
-        thread = threading.Thread(target=handle_send_data, args=(pdu_tcp, conn, clients, server))
-        thread.start()
+        if pdu_tcp.packet_type == 'c0':
+            thread = threading.Thread(target=handle_send_data, args=(pdu_tcp, conn, clients, server))
+            thread.start()
+        if pdu_tcp.packet_type == 'c1':
+            logging.info(f"Paquet DATA_ACK rebut")
+            write_data(pdu_tcp, client)
+            sock.close()
+        elif pdu_tcp.packet_type == 'c2':
+            logging.info(f"Paquet DATA_NACK rebut")
+            sock.close()
+        elif pdu_tcp.packet_type == 'c3':
+            logging.info(f"Paquet DATA_REJ rebut")
+            client.state = "DISCONNECTED"
+            sock.close()
+        else:
+            logging.info(f"Paquet desconegut")
+            sock.close()
     return
 
 
-def handle_commands(server_input, clients, server):
+def handle_commands(sock, sock_udp, server_input, clients, server):
     input_splitted = server_input.split()
     for i, word in enumerate(input_splitted):
         input_splitted[i] = word
@@ -121,16 +139,93 @@ def handle_commands(server_input, clients, server):
             id_client = input_splitted[1]
             id_element = input_splitted[2]
             new_value = input_splitted[3]
+            print(id_element[-1])
+            if id_element[-1] == 'I':
+                thread = threading.Thread(target=handle_set_and_get, args=(sock, id_client, id_element, new_value, clients, server, server_command))
+                thread.start()
+            else:
+                logging.info(f"L'element anomenat: {id_element} és un sensor i no permet establir el seu valor")
         else:
-            logging.info("Paràmetres incorrectes")
+            logging.info("Error de sintàxi. (set <nom_contr.> <element> <valor>)")
     elif server_command == "get":
         if i == 3:
             id_client = input_splitted[1]
             id_element = input_splitted[2]
+            thread = threading.Thread(target=handle_set_and_get, args=(sock, id_client, id_element, None, clients, server, server_command))
+            thread.start()
         else:
-            logging.info("Paràmetres incorrectes")
+            logging.info("Error de sintàxi. (set <nom_contr.> <element>)")
+    elif server_command == "list":
+        show_table(clients)
+    elif server_command == "quit":
+        #Implementar
+        global quit
+        quit = True
     else:
-        logging.info("Comanda desconeguda")
+        logging.info(f"Comanda incorrecta {input_splitted[0]}")
+
+
+def show_table(clients):
+    titles_list = ["-ID. DISP-", "-ID.COM.-", "----- IP -----", "---- ESTAT ----", "---------- ELEMENTS ----------"]
+    clients_list = []
+    for client in clients:
+        clients_i = []
+        clients_i.append(client.id_client)
+        if client.random_number is not None:
+            clients_i.append(client.random_number)
+        else:
+            clients_i.append('')
+        clients_i.append('127.0.0.1')
+        clients_i.append(client.state)
+        if client.elements is not None:
+            elements = ""
+            for i, element in enumerate(client.elements):
+                if i < len(client.elements) - 1:
+                    elements += '{};'.format(element)
+                else:
+                    elements += '{}'.format(element)
+            clients_i.append(elements)
+        else:
+            clients_i.append('')
+        clients_list.append(clients_i)
+
+    row_format = "{:<17}" * (len(titles_list))
+    print(row_format.format(*titles_list))
+    for team, row in zip(titles_list, clients_list):
+        print(row_format.format(*row))
+
+
+def handle_set_and_get(sock_tcp, id_client, id_element, new_value, clients, server, command):
+    client = check_client(id_client, clients)
+    if client is not None:
+        tcp_connexion = ('localhost', client.tcp_port)
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            sock.connect(tcp_connexion)
+        except sock.error:
+            client.state = "DISCONNECTED"
+            sock.close()
+        if command == "get":
+            bytes_sent = sock.send(pack_pdu_tcp('c5', server.id_server, client.random_number, id_element, "", id_client))
+            logging.info(f"PDU GET_DATA enviada -> bytes: {bytes_sent} id transmissor: {server.id_server} id comunicació: {client.random_number} element: {id_element} valor: "" info: {id_client}")
+        else:
+            bytes_sent = sock.send(pack_pdu_tcp('c4', server.id_server, client.random_number, id_element, new_value, id_client))
+            logging.info(f"PDU SET_DATA enviada -> bytes: {bytes_sent} id transmissor: {server.id_server} id comunicació: {client.random_number} element: {id_element} valor: {new_value} info: {id_client}")
+        
+        # pdu_tcp, conn, address = read_tcp(sock_tcp, 127)
+        # if pdu_tcp.packet_type == 'c1':
+        #     logging.info(f"Paquet DATA_ACK rebut")
+        #     write_data(pdu_tcp, client)
+        #     sock.close()
+        # elif pdu_tcp.packet_type == 'c2':
+        #     logging.info(f"Paquet DATA_NACK rebut")
+        #     sock.close()
+        # elif pdu_tcp.packet_type == 'c3':
+        #     logging.info(f"Paquet DATA_REJ rebut")
+        #     client.state = "DISCONNECTED"
+        #     sock.close()
+    else:
+        logging.info(f"Client desconegut")
 
 
 def read_udp(sock_udp, pdu_udp_bytes):
@@ -228,7 +323,7 @@ def check_client_reg_info(data, client):
     elements = data.split(',')[1]
     
     if tcp_port and elements is not None:
-        client.tcp_port = tcp_port
+        client.tcp_port = int(tcp_port)
         client.elements = elements.split(';')
         logging.info(f"Afegit tcp port: {client.tcp_port} al client: {client.id_client}")
         logging.info(f"Afegit elements: {client.elements} al client: {client.id_client}\n")
@@ -411,17 +506,20 @@ def setup():
             elif sock == sock_tcp:
                 logging.info("Rebut paquet TCP, creat procés per atendre'l")
                 handle_tcp_packet(sock, clients, server)
-                # Replica UDP no usable
-                # package_type, id_client_transmitter, id_client_communication, data, conn = read_tcp(sock)
-                # register(package_type, id_client_transmitter, id_client_communication, data, conn, clients, server)
             elif sock == sys.stdin.fileno():
                 server_input = input()
-                handle_commands(server_input, clients, server)
+                handle_commands(sock, sock_udp, server_input, clients, server)
             else:
                 logging.info(f"\nUnknown socket: {sock}")
                 
         thread = threading.Thread(target=check_3_alive, args=(clients,))
         thread.start()
+
+        if quit:
+            q = sock_udp.close()
+            print(q)
+            sock_tcp.close()
+            break
 
 
 if __name__ == '__main__':
