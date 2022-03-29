@@ -5,20 +5,26 @@ import threading
 import time
 from random import *
 import logging
+import sys
+import os
 
 from select import *
 from struct import *
+from wsgiref.simple_server import server_version
 
 HOST = 'localhost'  # Standard loopback interface address (localhost)
 z = 2
 t = 1
 w = 3
 m = 3
+server_file = "server.cfg"
+database_file = "bbdd_dev.dat"
 quit = False
 
 # Logging config
 logging.basicConfig(format='%(asctime)s - %(levelname)s => %(message)s', datefmt='%H:%M:%S', level=logging.INFO)
 logging.basicConfig(format='%(asctime)s - %(levelname)s => %(message)s', datefmt='%H:%M:%S', level=logging.DEBUG)
+logging.basicConfig(format='%(asctime)s - %(levelname)s => %(message)s', datefmt='%H:%M:%S', level=logging.ERROR)
 
 
 class Server:
@@ -58,9 +64,43 @@ class PduTcp:
         self.info = info
 
 
+def parse_args():
+    args = sys.argv[1:]
+    print(args)
+    if len(args) > 0:
+        if args[0] == "-d":
+            level = logging.DEBUG
+            logger = logging.getLogger()
+            logger.setLevel(level)
+            logging.debug("DEBUG")
+            logging.info("INFO")
+            logging.error("ERROR")
+        elif args[0] == "-c":
+            if len(args) >= 2:
+                global server_file
+                server_file = args[1]
+            else:
+                logging.error("Falta especificar l'arxiu")
+                exit()
+        elif args[0] == "-u":
+            if len(args) >= 2:
+                global database_file
+                database_file = args[1]
+            else:
+                logging.error("Falta especificar l'arxiu")
+                exit()
+        else:
+            logging.error("Opció incorrecta. Ús: -d debug / -c <arxiu> / -u <arxiu>")
+            exit()
+
+
 def read_file():
     id_server = udp_port = tcp_port = None
-    f = open("server.cfg", "r")
+    try:
+        f = open(server_file, "r")
+    except IOError:
+        logging.error(f"No es pot obrir l'arxiu de configuració: {server_file}")
+        exit()
     read = f.read()
     for line in read.splitlines():
         if 'Id =' in line:
@@ -69,11 +109,19 @@ def read_file():
             udp_port = line.split('= ')[1]
         elif 'TCP-port =' in line:
             tcp_port = line.split('= ')[1]
-    return Server(id_server, udp_port, tcp_port)
+    if None not in (id_server, udp_port, tcp_port):
+        return Server(id_server, udp_port, tcp_port)
+    else:
+        logging.error("No es pot obtenir l'identificador del servidor de l'arxiu de configuració")
+        exit()
 
 
 def read_database():
-    f = open("bbdd_dev.dat", "r")
+    try:
+        f = open(database_file, "r")
+    except IOError:
+        logging.info(f"No es pot obrir l'arxiu de configuració: {server_file}")
+        exit()
     read = f.read()
     clients = []
     for line in read.splitlines():
@@ -110,17 +158,6 @@ def handle_tcp_packet(sock, clients, server):
         if pdu_tcp.packet_type == 'c0':
             thread = threading.Thread(target=handle_send_data, args=(pdu_tcp, conn, clients, server))
             thread.start()
-        if pdu_tcp.packet_type == 'c1':
-            logging.info(f"Paquet DATA_ACK rebut")
-            write_data(pdu_tcp, client)
-            sock.close()
-        elif pdu_tcp.packet_type == 'c2':
-            logging.info(f"Paquet DATA_NACK rebut")
-            sock.close()
-        elif pdu_tcp.packet_type == 'c3':
-            logging.info(f"Paquet DATA_REJ rebut")
-            client.state = "DISCONNECTED"
-            sock.close()
         else:
             logging.info(f"Paquet desconegut")
             sock.close()
@@ -198,34 +235,69 @@ def show_table(clients):
 def handle_set_and_get(sock_tcp, id_client, id_element, new_value, clients, server, command):
     client = check_client(id_client, clients)
     if client is not None:
-        tcp_connexion = ('localhost', client.tcp_port)
+        tcp_connexion = (HOST, client.tcp_port)
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
             sock.connect(tcp_connexion)
-        except sock.error:
+        except socket.error:
             client.state = "DISCONNECTED"
             sock.close()
         if command == "get":
             bytes_sent = sock.send(pack_pdu_tcp('c5', server.id_server, client.random_number, id_element, "", id_client))
-            logging.info(f"PDU GET_DATA enviada -> bytes: {bytes_sent} id transmissor: {server.id_server} id comunicació: {client.random_number} element: {id_element} valor: "" info: {id_client}")
+            logging.info(f"PDU GET_DATA enviada -> bytes: {bytes_sent} id transmissor: {server.id_server} id comunicació: {client.random_number} element: {id_element} valor: '' info: {id_client}")
         else:
             bytes_sent = sock.send(pack_pdu_tcp('c4', server.id_server, client.random_number, id_element, new_value, id_client))
             logging.info(f"PDU SET_DATA enviada -> bytes: {bytes_sent} id transmissor: {server.id_server} id comunicació: {client.random_number} element: {id_element} valor: {new_value} info: {id_client}")
-        
-        # pdu_tcp, conn, address = read_tcp(sock_tcp, 127)
-        # if pdu_tcp.packet_type == 'c1':
-        #     logging.info(f"Paquet DATA_ACK rebut")
-        #     write_data(pdu_tcp, client)
-        #     sock.close()
-        # elif pdu_tcp.packet_type == 'c2':
-        #     logging.info(f"Paquet DATA_NACK rebut")
-        #     sock.close()
-        # elif pdu_tcp.packet_type == 'c3':
-        #     logging.info(f"Paquet DATA_REJ rebut")
-        #     client.state = "DISCONNECTED"
-        #     sock.close()
+
+        pdu_tcp = read_set_get_answer(sock, 127)
+        if pdu_tcp is not None:
+            if pdu_tcp.packet_type == 'c1':
+                logging.info(f"Paquet DATA_ACK rebut")
+                if pdu_tcp.id_transmitter == id_client:
+                    if pdu_tcp.id_communication == client.random_number:
+                        correct_element = False
+                        for element in client.elements:
+                            if pdu_tcp.element == element:
+                                correct_element = True
+                                write_data(pdu_tcp, client)
+                                sock.close()
+                        if correct_element is False:
+                            logging.debug(f"Error en les dades d'identificació del element: {id_element} del dispositiu: {id_client} (rebut element: {pdu_tcp.element})")
+                    else:
+                        logging.debug(f"Error en les dades d'identificació del dispositiu: {client.random_number} (rebut id. com.: {pdu_tcp.id_communication}")
+                        client.state = "DISCONNECTED"
+                        logging.info(f"Dispositiu: {id_client} passa a l'estat: {client.state}")
+
+                else:
+                    logging.debug(f"Error en les dades d'identificació del dispositiu: {id_client} (rebut id: {pdu_tcp.id_transmitter}, id. com.: {pdu_tcp.id_communication}")
+                    client.state = "DISCONNECTED"
+                    logging.info(f"Dispositiu: {id_client} passa a l'estat: {client.state}")
+            elif pdu_tcp.packet_type == 'c2':
+                logging.info(f"Paquet DATA_NACK rebut")
+                sock.close()
+            elif pdu_tcp.packet_type == 'c3':
+                logging.info(f"Paquet DATA_REJ rebut")
+                client.state = "DISCONNECTED"
+                sock.close()
+        else:
+            return
     else:
         logging.info(f"Client desconegut")
+
+
+def read_set_get_answer(sock, pdu_tcp_bytes):
+    data_tcp = sock.recv(pdu_tcp_bytes)
+    pdu_tcp = None
+    timer = time.time()
+    tcp_counter = time.time()
+    while len(data_tcp) == 0 and tcp_counter - timer <= m:
+        tcp_counter = time.time()
+        data_tcp = sock.recv(pdu_tcp_bytes)
+    if len(data_tcp) == pdu_tcp_bytes:
+        pdu_tcp = unpack_pdu_tcp(data_tcp)
+    else:
+        logging.info(f"No s'han rebut dades per la comunicació TCP en {m} segons")
+    return pdu_tcp
 
 
 def read_udp(sock_udp, pdu_udp_bytes):
@@ -481,6 +553,7 @@ def check_3_alive(clients):
 
 
 def setup():
+    parse_args()
     server = read_file()
     clients = read_database()
 
@@ -517,9 +590,11 @@ def setup():
 
         if quit:
             q = sock_udp.close()
-            print(q)
+            logging.info("Tancat socket UDP per la comunicació amb els clients")
             sock_tcp.close()
-            break
+            logging.info("Tancat socket TCP per la comunicació amb els clients")
+            logging.info(f"Finalitzat procés {os.getpid()}")
+            exit()
 
 
 if __name__ == '__main__':
