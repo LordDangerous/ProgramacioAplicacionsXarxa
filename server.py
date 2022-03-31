@@ -66,7 +66,6 @@ class PduTcp:
 
 def parse_args():
     args = sys.argv[1:]
-    print(args)
     if len(args) > 0:
         if args[0] == "-d":
             level = logging.DEBUG
