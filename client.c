@@ -162,7 +162,7 @@ void readFile() {
         if (lineNumber == 2){
             if (strcmp(p, "Local-TCP ") == 0){
                 client.tcp_port = atoi(value);
-                char* tcp_port = malloc(sizeof(char)*10);
+                char* tcp_port = malloc(sizeof(char)*100);
                 sprintf(tcp_port, "Assignat port tcp: %d\n", client.tcp_port);
                 printInfo(tcp_port);
                 free(tcp_port);
@@ -188,7 +188,7 @@ void readFile() {
         if (lineNumber == 4){
             if (strcmp(p, "Server-UDP ") == 0){
                 client.server_udp = atoi(value);
-                char* server_udp = malloc(sizeof(char)*10);
+                char* server_udp = malloc(sizeof(char)*100);
                 sprintf(server_udp, "Assignat port udp del servidor: %d\n", client.server_udp);
                 printInfo(server_udp);
                 free(server_udp);
@@ -204,27 +204,35 @@ void readFile() {
 }
 
 
-/*struct PduUdp packPdu(char* packet_type, char id_transmitter, char id_communication, char data){
-    struct PduUdp pdu = {packet_type, id_transmitter, id_communication, data};
+struct PduUdp packPduUdp(struct PduUdp pdu, int packet_type, char* id_transmitter, char* id_communication, char* data){
+    pdu.packet_type = packet_type;
+    char id_client[11] = {0};
+    strncpy(id_client, id_transmitter, 10);
+
+    strcpy(pdu.id_transmitter, id_client);
+    strcpy(pdu.id_communication, id_communication);
+    strcpy(pdu.data, data);
+
+    char* pdu_message = malloc(sizeof(char)*100);
+    sprintf(pdu_message, "PDU -> tipus paquet: %x id transmissor: %s id comunicació: %s dades: %s\n", pdu.packet_type, pdu.id_transmitter, pdu.id_communication, pdu.data);
+    printDebug(pdu_message);
+    free(pdu_message);
+    
     return pdu;
-}*/
+}
 
 
 void registerPhase(int sock, struct sockaddr_in serveraddr) {
     printInfo("REGISTER PHASE");
     client.state = NOT_REGISTERED;
 
-    printf("Client passa a l'estat: %x\n", client.state);
-    
-    char id_client[11] = {0};
-    strncpy(id_client, client.id_client, 10);
-    printf("Id client: %s\n", id_client);
+    char* message = malloc(sizeof(char)*100);
+    sprintf(message, "Client passa a l'estat: %x", client.state);
+    printInfo(message);
+    free(message);
+
     struct PduUdp pdu;
-    pdu.packet_type = REG_REQ;
-    strcpy(pdu.id_transmitter, id_client);
-    strcpy(pdu.id_communication, "0000000000");
-    strcpy(pdu.data, "");
-    printf("PDU: %x %s %s %s\n", pdu.packet_type, pdu.id_transmitter, pdu.id_communication, pdu.data);
+    pdu = packPduUdp(pdu, REG_REQ, client.id_client, "0000000000", "");
     if ((sendto(sock, &pdu, sizeof(pdu), 0, (struct sockaddr*)&serveraddr, sizeof(serveraddr))) == -1) {
         printError("Error a l'enviar pdu");
         printf("%d\n", errno);
