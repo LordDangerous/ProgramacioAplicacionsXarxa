@@ -4,17 +4,66 @@
 #include <string.h>
 #include <time.h>
 
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <netdb.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+
 char clientFile[] = "client.cfg";
+
+
+/* Packet type */
+#define REG_REQ 0xa0
+#define REG_ACK 0xa1
+#define REG_NACK 0xa2
+#define REG_REJ 0xa3
+#define REG_INFO 0xa4
+#define INFO_ACK 0xa5
+#define INFO_NACK 0xa6
+#define INFO_REJ 0xa7
+
+
+/* States */
+#define DISCONNECTED 0xf0
+#define NOT_REGISTERED 0xf1
+#define WAIT_ACK_REG 0xf2
+#define WAIT_INFO 0xf3
+#define WAIT_ACK_INFO 0xf4
+#define REGISTERED 0xf5
+#define SEND_ALIVE 0xf6
+
 
 
 struct Client {
     char id_client[10];
-    char state[15];
+    int state;
     int tcp_port;
     char elements[15*5];
     char server[9];
     int server_udp;
+}; struct Client client;
+
+
+struct PduUdp {
+    unsigned char packet_type;
+    char id_transmitter[11];
+    char id_communication[11];
+    char data[61];
 };
+
+
+/* Declaració funcions */
+void removeSpaces(char* s);
+void printDebug(char* message);
+void printInfo(char* message);
+void printError(char* message);
+void readFile();
+void setup();
+void registerPhase(int sock, struct sockaddr_in server);
+
+
 
 
 void removeSpaces(char* s) {
@@ -36,7 +85,7 @@ void printDebug(char* message) {
     hours = local->tm_hour;
     minutes = local->tm_min;
     seconds = local->tm_sec;
-    printf("%d:%d:%d - DEBUG => %s", hours, minutes, seconds, message);
+    printf("%d:%d:%d - DEBUG => %s\n", hours, minutes, seconds, message);
 }
 
 
@@ -49,7 +98,7 @@ void printInfo(char* message) {
     hours = local->tm_hour;
     minutes = local->tm_min;
     seconds = local->tm_sec;
-    printf("%d:%d:%d - INFO => %s", hours, minutes, seconds, message);
+    printf("%d:%d:%d - INFO => %s\n", hours, minutes, seconds, message);
 }
 
 
@@ -62,12 +111,11 @@ void printError(char* message) {
     hours = local->tm_hour;
     minutes = local->tm_min;
     seconds = local->tm_sec;
-    printf("%d:%d:%d - ERROR => %s", hours, minutes, seconds, message);
+    printf("%d:%d:%d - ERROR => %s\n", hours, minutes, seconds, message);
 }
 
 
 void readFile() {
-    struct Client client;
     FILE* fp;
     char* p;
     char* value;
@@ -128,7 +176,7 @@ void readFile() {
             if (strcmp(p, "Server ") == 0){
                 strcpy(client.server, value);
                 char* message = malloc(sizeof(char)*100);
-                sprintf(message, "Assignada IP servidor: %s", client.id_client);
+                sprintf(message, "Assignada IP servidor: %s", client.server);
                 printInfo(message);
                 free(message);
             }
@@ -156,14 +204,63 @@ void readFile() {
 }
 
 
+/*struct PduUdp packPdu(char* packet_type, char id_transmitter, char id_communication, char data){
+    struct PduUdp pdu = {packet_type, id_transmitter, id_communication, data};
+    return pdu;
+}*/
+
+
+void registerPhase(int sock, struct sockaddr_in serveraddr) {
+    printInfo("REGISTER PHASE");
+    client.state = NOT_REGISTERED;
+
+    printf("Client passa a l'estat: %x\n", client.state);
+    
+    char id_client[11] = {0};
+    strncpy(id_client, client.id_client, 10);
+    printf("Id client: %s\n", id_client);
+    struct PduUdp pdu;
+    pdu.packet_type = REG_REQ;
+    strcpy(pdu.id_transmitter, id_client);
+    strcpy(pdu.id_communication, "0000000000");
+    strcpy(pdu.data, "");
+    printf("PDU: %x %s %s %s\n", pdu.packet_type, pdu.id_transmitter, pdu.id_communication, pdu.data);
+    if ((sendto(sock, &pdu, sizeof(pdu), 0, (struct sockaddr*)&serveraddr, sizeof(serveraddr))) == -1) {
+        printError("Error a l'enviar pdu");
+        printf("%d\n", errno);
+    }
+}
 
 
 
 
+void setup() {
+    int sock;
 
+    struct sockaddr_in serveraddr;
+    //struct hostent *he;
+
+    /*if ((he = gethostbyname(client.server)) == NULL) {
+        printError("No és possible obtenir gethostbyname");
+        exit(1);
+    }*/
+
+    sock = socket(AF_INET, SOCK_DGRAM, 0);
+    
+    serveraddr.sin_family = AF_INET;
+    serveraddr.sin_port = htons(client.server_udp);
+    serveraddr.sin_addr.s_addr = htonl(INADDR_ANY);
+    //memcpy((char *) &serveraddr.sin_addr.s_addr, he->h_addr_list[0], he->h_length);
+
+    
+
+    registerPhase(sock, serveraddr);    
+}
 
 
 
 int main() {
     readFile();
+    printInfo("READED FILE");
+    setup();
 }
