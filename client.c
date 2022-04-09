@@ -62,7 +62,7 @@ struct PduUdp {
 struct register_arg_struct {
     int sock;
     struct sockaddr_in serveraddr;
-    struct PduUdp pdu;
+    char pdu[84];
 } args;
 
 
@@ -231,7 +231,7 @@ void readFile() {
 }
 
 
-struct PduUdp packPduUdp(struct PduUdp pdu, int packet_type, char* id_transmitter, char* id_communication, char* data) {
+struct PduUdp packPduUdp(struct PduUdp pdu, int packet_type, char* id_transmitter, char* id_communication, char* data){
     pdu.packet_type = packet_type;
     char id_client[11] = {0};
     strncpy(id_client, id_transmitter, 10);
@@ -247,8 +247,6 @@ struct PduUdp packPduUdp(struct PduUdp pdu, int packet_type, char* id_transmitte
     
     return pdu;
 }
-
-
 
 
 void registerPhase(int sock, struct sockaddr_in serveraddr) {
@@ -342,10 +340,26 @@ void* handleRegister(void* argp) {
     return NULL;
 }
 
-
-
-struct PduUdp unpackPduUdp(struct PduUdp pdu) {
+struct PduUdp unpackPduUdp(char *data) {
+    int i;
+    char* message = malloc(sizeof(char) * 100);
     
+    printDebug("---------------- UNPACK PDU --------------");
+    printf("SIZE: %d\n", strlen(data));
+    
+    struct PduUdp pdu;
+    pdu.packet_type = data[0];
+    sprintf(message, "Tipus paquet: %x", pdu.packet_type);
+    printDebug(message);
+    memcpy(pdu.id_transmitter, data + 1, sizeof(char) * 11);
+    sprintf(message, "Id transmissor: %s", pdu.id_transmitter);
+    printDebug(message);
+    memcpy(pdu.id_communication, data + 12, sizeof(char) * 11);
+    sprintf(message, "Id comunicació: %s", pdu.id_communication);
+    printDebug(message);
+    memcpy(pdu.data, data + 23, sizeof(char) * 61);
+    sprintf(message, "Dades: %s", pdu.data);
+    printDebug(message);
     return pdu;
 }
 
@@ -354,9 +368,11 @@ void* handleUdpPacket(void* argp) {
     struct register_arg_struct *args = argp;
     int sock = args->sock;
     struct sockaddr_in serveraddr = args->serveraddr;
-    struct PduUdp pdu = args->pdu;
 
-    unpackPduUdp(pdu);
+    char data[84];
+    memcpy(data, args->pdu, 84);
+    printf("SIZE HANDLE: %d\n", sizeof(data));
+    unpackPduUdp(data);
 
     printf("Rebut paquet UDP, creat procés per atendre'l\n");
     pthread_exit(NULL);
@@ -368,7 +384,7 @@ void* handleUdpPacket(void* argp) {
 void setup() {
     int sock_udp;
 
-    struct sockaddr_in clientaddr, serveraddr;
+    struct sockaddr_in serveraddr;
     //struct hostent *he;
 
     /*if ((he = gethostbyname(client.server)) == NULL) {
@@ -395,7 +411,7 @@ void setup() {
     /* SELECT */
     struct timeval timeout;
 
-    timeout.tv_sec = 1;
+    timeout.tv_sec = 0;
     timeout.tv_usec = 0;
     fd_set rset;
     
@@ -405,7 +421,7 @@ void setup() {
 
     ssize_t bytes_received;
     socklen_t len;
-    struct PduUdp buffer;
+    char buffer[84];
 
     while (1) {
         FD_ZERO(&rset);
@@ -415,10 +431,11 @@ void setup() {
         input = select(maxsock, &rset, NULL, NULL, &timeout);
 
         if (FD_ISSET(sock_udp, &rset)) {
-            len = sizeof(clientaddr);
-            bytes_received = recvfrom(sock_udp, &buffer, sizeof(buffer), 0, (struct sockaddr*)&clientaddr, &len);
+            len = sizeof(serveraddr);
+            bytes_received = recvfrom(sock_udp, (char*)buffer, sizeof(buffer), 0, (struct sockaddr*)&serveraddr, &len);
             printf("Bytes rebuts: %ld\n", bytes_received);
-            args.pdu = buffer;
+            puts(buffer);
+            strcpy(args.pdu, buffer);
             if (pthread_create(&thread, NULL, &handleUdpPacket, (void *)&args) != 0) {
                 printf("ERROR creating thread");
             }
