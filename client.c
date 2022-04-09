@@ -11,6 +11,12 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 
+#include <pthread.h>
+
+#include <sys/select.h>
+#include <sys/types.h>
+#include <unistd.h>
+
 char clientFile[] = "client.cfg";
 
 
@@ -53,15 +59,29 @@ struct PduUdp {
     char data[61];
 };
 
+struct register_arg_struct {
+    int sock;
+    struct sockaddr_in serveraddr;
+    struct PduUdp pdu;
+} args;
 
-/* Declaració funcions */
+
+/* Temps registre */
+#define t 1
+#define u 2
+#define n 8
+#define o 3
+#define p 2
+#define q 4
+
+
+/* Declaració funcions NECESSARI???????*/
 void removeSpaces(char* s);
 void printDebug(char* message);
 void printInfo(char* message);
 void printError(char* message);
 void readFile();
 void setup();
-void registerPhase(int sock, struct sockaddr_in server);
 
 
 
@@ -73,6 +93,13 @@ void removeSpaces(char* s) {
             ++d;
         }
     } while ((*s++ = *d++));
+}
+
+int max (int x, int y) {
+    if (x > y)
+        return x;
+    else
+        return y;
 }
 
 
@@ -117,7 +144,7 @@ void printError(char* message) {
 
 void readFile() {
     FILE* fp;
-    char* p;
+    char* key;
     char* value;
     char line[2048];
     int lineNumber = 0;
@@ -128,12 +155,12 @@ void readFile() {
         exit(1);
     }
     while (fgets(line, sizeof(line), fp) != NULL) {
-        p = strtok(line, delimiter);
+        key = strtok(line, delimiter);
         value = strtok(NULL, delimiter);
         removeSpaces(value);
         
         if (lineNumber == 0){
-            if (strcmp(p, "Id ") == 0){
+            if (strcmp(key, "Id ") == 0){
                 strcpy(client.id_client, value);
                 char* message = malloc(sizeof(char)*100);
                 sprintf(message, "Assignat id_client: %s", client.id_client);
@@ -147,7 +174,7 @@ void readFile() {
             
         }
         if (lineNumber == 1){
-            if (strcmp(p, "Elements ") == 0){
+            if (strcmp(key, "Elements ") == 0){
                 strcpy(client.elements, value);
                 char* message = malloc(sizeof(char)*100);
                 sprintf(message, "Assignats elements: %s", client.elements);
@@ -160,7 +187,7 @@ void readFile() {
             }
         }
         if (lineNumber == 2){
-            if (strcmp(p, "Local-TCP ") == 0){
+            if (strcmp(key, "Local-TCP ") == 0){
                 client.tcp_port = atoi(value);
                 char* tcp_port = malloc(sizeof(char)*100);
                 sprintf(tcp_port, "Assignat port tcp: %d\n", client.tcp_port);
@@ -173,7 +200,7 @@ void readFile() {
             }
         }
         if (lineNumber == 3){
-            if (strcmp(p, "Server ") == 0){
+            if (strcmp(key, "Server ") == 0){
                 strcpy(client.server, value);
                 char* message = malloc(sizeof(char)*100);
                 sprintf(message, "Assignada IP servidor: %s", client.server);
@@ -186,7 +213,7 @@ void readFile() {
             }
         }
         if (lineNumber == 4){
-            if (strcmp(p, "Server-UDP ") == 0){
+            if (strcmp(key, "Server-UDP ") == 0){
                 client.server_udp = atoi(value);
                 char* server_udp = malloc(sizeof(char)*100);
                 sprintf(server_udp, "Assignat port udp del servidor: %d\n", client.server_udp);
@@ -204,7 +231,7 @@ void readFile() {
 }
 
 
-struct PduUdp packPduUdp(struct PduUdp pdu, int packet_type, char* id_transmitter, char* id_communication, char* data){
+struct PduUdp packPduUdp(struct PduUdp pdu, int packet_type, char* id_transmitter, char* id_communication, char* data) {
     pdu.packet_type = packet_type;
     char id_client[11] = {0};
     strncpy(id_client, id_transmitter, 10);
@@ -222,30 +249,126 @@ struct PduUdp packPduUdp(struct PduUdp pdu, int packet_type, char* id_transmitte
 }
 
 
+
+
 void registerPhase(int sock, struct sockaddr_in serveraddr) {
     printInfo("REGISTER PHASE");
+    int packets_sent = 0;
     client.state = NOT_REGISTERED;
 
     char* message = malloc(sizeof(char)*100);
     sprintf(message, "Client passa a l'estat: %x", client.state);
     printInfo(message);
-    free(message);
+    
 
     struct PduUdp pdu;
     pdu = packPduUdp(pdu, REG_REQ, client.id_client, "0000000000", "");
-    if ((sendto(sock, &pdu, sizeof(pdu), 0, (struct sockaddr*)&serveraddr, sizeof(serveraddr))) == -1) {
-        printError("Error a l'enviar pdu");
+    int bytes_sent;
+    if ((bytes_sent = sendto(sock, &pdu, sizeof(pdu), 0, (struct sockaddr*)&serveraddr, sizeof(serveraddr))) == -1) {
+        printError("Error a l'enviar pdu.");
         printf("%d\n", errno);
     }
+    packets_sent += 1;
+    printf("Num total paquets enviats: %d\n", packets_sent);
+
+    sprintf(message, "Enviat -> bytes: %d  paquet: %x  id transmissor: %s  id comunicació: %s  dades: %s", bytes_sent, pdu.packet_type, pdu.id_transmitter, pdu.id_communication, pdu.data);
+    printDebug(message);
+    printInfo("Paquet 1 REG_REQ enviat");
+
+    client.state = WAIT_ACK_REG;
+    sprintf(message, "Client passa a l'estat: %x", client.state);
+    printInfo(message);
+
+    clock_t start_t, end_t;
+    int t_register = t;
+    sprintf(message, "%d %d", t_register, packets_sent);
+    printInfo(message);
+    start_t = clock();
+    while (1) {
+        end_t = clock();
+        if ((end_t - start_t) == t_register && packets_sent <= p) {
+            printf("Temps: %ld\n", (end_t - start_t));
+            if ((bytes_sent = sendto(sock, &pdu, sizeof(pdu), 0, (struct sockaddr*)&serveraddr, sizeof(serveraddr))) == -1) {
+                printError("Error a l'enviar pdu.");
+            }
+            packets_sent += 1;
+            printf("Num total paquets enviats: %d\n", packets_sent);
+            sprintf(message, "Enviatp -> bytes: %d  paquet: %x  id transmissor: %s  id comunicació: %s  dades: %s", bytes_sent, pdu.packet_type, pdu.id_transmitter, pdu.id_communication, pdu.data);
+            printDebug(message);
+            start_t = clock();
+        }
+        else if ((end_t - start_t) == t_register && packets_sent > p && packets_sent < n) {
+            printf("Temps: %ld\n", (end_t - start_t));
+            if ((bytes_sent = sendto(sock, &pdu, sizeof(pdu), 0, (struct sockaddr*)&serveraddr, sizeof(serveraddr))) == -1) {
+                printError("Error a l'enviar pdu.");
+            }
+            packets_sent += 1;
+            printf("Num total paquets enviats: %d\n", packets_sent);
+            if (packets_sent > p) {
+                if (t_register < (q * t)) {
+                    t_register = t_register + t;
+                    printf("T_Register incrementat a: %d\n", t_register);
+                }
+            }
+            sprintf(message, "Enviatpp -> bytes: %d  paquet: %x  id transmissor: %s  id comunicació: %s  dades: %s", bytes_sent, pdu.packet_type, pdu.id_transmitter, pdu.id_communication, pdu.data);
+            printDebug(message);
+            start_t = clock();
+        }
+        else if (packets_sent == n) {
+            break;
+        }
+    }
+    printf("Waiting 2 s\n");
+    sleep(u);
+}
+
+
+void* handleRegister(void* argp) {
+
+    struct register_arg_struct *args = argp;
+    int sock = args->sock;
+    struct sockaddr_in serveraddr = args->serveraddr;
+
+
+    int register_number = 0;
+    while (register_number < o) {
+        registerPhase(sock, serveraddr);
+        register_number += 1;
+        printf("Fase de registre número %d finalitzada\n", register_number);
+    }
+    
+    printInfo("No s'ha pogut contactar amb el servidor");
+    pthread_exit(NULL);
+    return NULL;
 }
 
 
 
+struct PduUdp unpackPduUdp(struct PduUdp pdu) {
+    
+    return pdu;
+}
+
+
+void* handleUdpPacket(void* argp) {
+    struct register_arg_struct *args = argp;
+    int sock = args->sock;
+    struct sockaddr_in serveraddr = args->serveraddr;
+    struct PduUdp pdu = args->pdu;
+
+    unpackPduUdp(pdu);
+
+    printf("Rebut paquet UDP, creat procés per atendre'l\n");
+    pthread_exit(NULL);
+    return NULL;
+}
+
+
 
 void setup() {
-    int sock;
+    int sock_udp;
 
-    struct sockaddr_in serveraddr;
+    struct sockaddr_in clientaddr, serveraddr;
     //struct hostent *he;
 
     /*if ((he = gethostbyname(client.server)) == NULL) {
@@ -253,16 +376,54 @@ void setup() {
         exit(1);
     }*/
 
-    sock = socket(AF_INET, SOCK_DGRAM, 0);
+    sock_udp = socket(AF_INET, SOCK_DGRAM, 0);
     
     serveraddr.sin_family = AF_INET;
     serveraddr.sin_port = htons(client.server_udp);
     serveraddr.sin_addr.s_addr = htonl(INADDR_ANY);
     //memcpy((char *) &serveraddr.sin_addr.s_addr, he->h_addr_list[0], he->h_length);
 
+    pthread_t thread;
+    args.sock = sock_udp;
+    args.serveraddr = serveraddr;
     
+    if (pthread_create(&thread, NULL, &handleRegister, (void *)&args) != 0) {
+        printf("ERROR creating thread");
+    }
 
-    registerPhase(sock, serveraddr);    
+
+    /* SELECT */
+    struct timeval timeout;
+
+    timeout.tv_sec = 1;
+    timeout.tv_usec = 0;
+    fd_set rset;
+    
+    // PER TCP: int maxsock = max(sock_udp, sock_tcp) + 1;
+    int maxsock = sock_udp + 1;
+    int input;
+
+    ssize_t bytes_received;
+    socklen_t len;
+    struct PduUdp buffer;
+
+    while (1) {
+        FD_ZERO(&rset);
+        FD_SET(sock_udp, &rset);
+        //PER TCP: FD_SET(sock_tcp, &rset);
+
+        input = select(maxsock, &rset, NULL, NULL, &timeout);
+
+        if (FD_ISSET(sock_udp, &rset)) {
+            len = sizeof(clientaddr);
+            bytes_received = recvfrom(sock_udp, &buffer, sizeof(buffer), 0, (struct sockaddr*)&clientaddr, &len);
+            printf("Bytes rebuts: %ld\n", bytes_received);
+            args.pdu = buffer;
+            if (pthread_create(&thread, NULL, &handleUdpPacket, (void *)&args) != 0) {
+                printf("ERROR creating thread");
+            }
+        }
+    }
 }
 
 
