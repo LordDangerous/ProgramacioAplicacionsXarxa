@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
-//#include <stdbool.h>
+#include <stdbool.h>
 #include <errno.h>
 #include <string.h>
 #include <time.h>
@@ -19,7 +19,8 @@
 #include <unistd.h>
 
 char clientFile[] = "client.cfg";
-
+int register_number = 0;
+bool end_register_phase = false;
 
 /* Packet type */
 #define REG_REQ 0xa0
@@ -30,6 +31,10 @@ char clientFile[] = "client.cfg";
 #define INFO_ACK 0xa5
 #define INFO_NACK 0xa6
 #define INFO_REJ 0xa7
+
+#define ALIVE 0xb0
+#define ALIVE_NACK 0xb1
+#define ALIVE_REJ 0xb2
 
 
 /* States */
@@ -56,8 +61,8 @@ struct Client {
 struct Server {
     char id_server[10];
     char id_communication[10];
-    char udp_port[5];
-    char tcp_port[4];
+    int udp_port;
+    int tcp_port;
 } server;
 
 
@@ -82,9 +87,10 @@ struct register_arg_struct {
 #define o 3
 #define p 2
 #define q 4
+#define v 2
 
 
-/* Declaració funcions NECESSARI???????*/
+/* Declaració funcions */
 void removeSpaces(char* s);
 void printDebug(char* message);
 void printInfo(char* message);
@@ -92,8 +98,10 @@ void printError(char* message);
 void readFile();
 void setup();
 void* handleUdpPacket(void* argp);
+struct PduUdp packPduUdp(int packet_type, char* id_transmitter, char* id_communication, char* data);
 struct PduUdp unpackPduUdp(char* data);
-void* registerPhase(int sock, struct sockaddr_in serveraddr);
+void* registerPhase(void* argp);
+void* handleAlive(void* argp);
 
 
 
@@ -185,6 +193,7 @@ void printError(char* message) {
 
 
 void readFile() {
+    char* message = malloc(sizeof(char)*100);
     FILE* fp;
     char* key;
     char* value;
@@ -204,10 +213,8 @@ void readFile() {
         if (lineNumber == 0){
             if (strcmp(key, "Id ") == 0){
                 strcpy(client.id_client, value);
-                char* message = malloc(sizeof(char)*100);
                 sprintf(message, "Assignat id_client: %s", client.id_client);
                 printInfo(message);
-                free(message);
             }  
             else {
                 printInfo("No es pot obtenir l'identificador del client de l'arxiu de configuració");
@@ -218,10 +225,8 @@ void readFile() {
         if (lineNumber == 1){
             if (strcmp(key, "Elements ") == 0){
                 strcpy(client.elements, value);
-                char* message = malloc(sizeof(char)*100);
                 sprintf(message, "Assignats elements: %s", client.elements);
                 printInfo(message);
-                free(message);
             }
             else {
                 printInfo("No es poden obtenir els elements del client de l'arxiu de configuració");
@@ -231,10 +236,8 @@ void readFile() {
         if (lineNumber == 2){
             if (strcmp(key, "Local-TCP ") == 0){
                 client.tcp_port = atoi(value);
-                char* tcp_port = malloc(sizeof(char)*100);
-                sprintf(tcp_port, "Assignat port tcp: %d\n", client.tcp_port);
-                printInfo(tcp_port);
-                free(tcp_port);
+                sprintf(message, "Assignat port tcp: %d\n", client.tcp_port);
+                printInfo(message);
             }
             else {
                 printInfo("No es pot obtenir el port tcp del client de l'arxiu de configuració");
@@ -244,10 +247,8 @@ void readFile() {
         if (lineNumber == 3){
             if (strcmp(key, "Server ") == 0){
                 strcpy(client.server, value);
-                char* message = malloc(sizeof(char)*100);
                 sprintf(message, "Assignada IP servidor: %s", client.server);
                 printInfo(message);
-                free(message);
             }
             else {
                 printInfo("No es pot obtenir la IP servidor de l'arxiu de configuració");
@@ -257,10 +258,8 @@ void readFile() {
         if (lineNumber == 4){
             if (strcmp(key, "Server-UDP ") == 0){
                 client.server_udp = atoi(value);
-                char* server_udp = malloc(sizeof(char)*100);
-                sprintf(server_udp, "Assignat port udp del servidor: %d\n", client.server_udp);
-                printInfo(server_udp);
-                free(server_udp);
+                sprintf(message, "Assignat port udp del servidor: %d\n", client.server_udp);
+                printInfo(message);
             }
             else {
                 printInfo("No es pot obtenir el port udp del servidor de l'arxiu de configuració");
@@ -270,6 +269,7 @@ void readFile() {
         lineNumber++;
     }
     fclose(fp);
+    free(message);
 }
 
 
@@ -293,6 +293,7 @@ struct PduUdp packPduUdp(int packet_type, char* id_transmitter, char* id_communi
 
 void* handleUdpPacket(void* argp) {
     printf("Rebut paquet UDP, creat procés per atendre'l\n");
+    char* message = malloc(sizeof(char)*100);
     struct register_arg_struct *args = argp;
     int sock = args->sock;
     struct sockaddr_in serveraddr = args->serveraddr;
@@ -303,12 +304,27 @@ void* handleUdpPacket(void* argp) {
     struct PduUdp pdu;
     pdu = unpackPduUdp(data_received);
 
+    // struct PduUdp pdu;
+    // pdu.packet_type = data_received[0];
+    // sprintf(message, "Tipus paquet: %x", pdu.packet_type);
+    // printDebug(message);
+    // memcpy(pdu.id_transmitter, data_received + 1, sizeof(char) * 11);
+    // sprintf(message, "Id transmissor: %s", pdu.id_transmitter);
+    // printDebug(message);
+    // memcpy(pdu.id_communication, data_received + 12, sizeof(char) * 11);
+    // sprintf(message, "Id comunicació: %s", pdu.id_communication);
+    // printDebug(message);
+    // memcpy(pdu.data, data_received + 23, sizeof(char) * 61);
+    // sprintf(message, "Dades: %s", pdu.data);
+    // printDebug(message);
+    
+
+
     if (client.state == WAIT_ACK_REG && pdu.packet_type == REG_ACK) {
         printInfo("Rebut paquet REG_ACK");
-        char* message = malloc(sizeof(char)*100);
         strcpy(server.id_server, pdu.id_transmitter);
         strcpy(server.id_communication, pdu.id_communication);
-        strcpy(server.udp_port, pdu.data);
+        server.udp_port = atoi(pdu.data);
 
         int sock_udp_server = socket(AF_INET, SOCK_DGRAM, 0);
     
@@ -324,6 +340,8 @@ void* handleUdpPacket(void* argp) {
             printError("Error a l'enviar pdu.");
             printf("%d\n", errno);
         }
+        sprintf(message, "Enviat -> bytes: %d  paquet: %x  id transmissor: %s  id comunicació: %s  dades: %s", bytes_sent, pduREG_INFO.packet_type, pduREG_INFO.id_transmitter, pduREG_INFO.id_communication, pduREG_INFO.data);
+        printDebug(message);
 
         client.state = WAIT_ACK_INFO;
         printClientState();
@@ -359,7 +377,9 @@ void* handleUdpPacket(void* argp) {
                         if (pdu_received.packet_type == INFO_ACK) {
                             client.state = REGISTERED;
                             printClientState();
-                            //END REGISTER!!!!!!!!
+                            //END REGISTER
+                            pthread_exit(NULL);
+                            return NULL;
                         }
                         else if (pdu_received.packet_type == INFO_NACK) {
                             sprintf(message, "Descartat paquet de informació adicional de subscripció, motiu: %s", pdu_received.data);
@@ -367,6 +387,10 @@ void* handleUdpPacket(void* argp) {
                             client.state = NOT_REGISTERED;
                             printClientState();
                             //CONTINUAR REGISTRE
+                            return NULL;
+                        }
+                        else {
+                            printInfo("Paquet incorrecte");
                         }
                     }
                     else {
@@ -381,31 +405,40 @@ void* handleUdpPacket(void* argp) {
                 }
             }
         }
-
-        client.state = NOT_REGISTERED;
-        printClientState();
-        //NOU PROCÉS REGISTRE
+        else {
+            client.state = NOT_REGISTERED;
+            printClientState();
+            //NOU PROCÉS REGISTRE
+            end_register_phase = true;
+        }
     } 
     else if (pdu.packet_type == REG_NACK) {
-        return NULL;
         //CONTINUAR REGISTRE
+        return NULL;
     }
     else if (pdu.packet_type == REG_REJ) {
         client.state = NOT_REGISTERED;
         printClientState();
         //NOU PROCÉS REGISTRE
+        end_register_phase = true;
     }
     else {
         client.state = NOT_REGISTERED;
         //NOU PROCÉS REGISTRE
+        end_register_phase = true;
     }
+    free(message);
     pthread_exit(NULL);
     return NULL;
 }
 
 
-void* registerPhase(int sock, struct sockaddr_in serveraddr) {
+void* registerPhase(void* argp) {
     printInfo("REGISTER PHASE");
+
+    struct register_arg_struct *args = argp;
+    int sock = args->sock;
+    struct sockaddr_in serveraddr = args->serveraddr;
 
     int packets_sent = 0;
     client.state = NOT_REGISTERED;
@@ -429,11 +462,11 @@ void* registerPhase(int sock, struct sockaddr_in serveraddr) {
     printClientState();
 
     
-
     /* SELECT */
     struct timeval timeout;
     timeout.tv_sec = t;
     timeout.tv_usec = 0;
+    int timeout_s = t;
     
     fd_set rset;
     
@@ -443,7 +476,7 @@ void* registerPhase(int sock, struct sockaddr_in serveraddr) {
 
     ssize_t bytes_received;
     socklen_t len;
-    char buffer[84];
+    char buffer[84] = {0};
     FD_ZERO(&rset);
 
     while (1) {
@@ -458,63 +491,47 @@ void* registerPhase(int sock, struct sockaddr_in serveraddr) {
             bytes_received = recvfrom(sock, buffer, sizeof(buffer), 0, (struct sockaddr*)&serveraddr, &len);
             printf("Bytes rebuts: %ld\n", bytes_received);
             printf("%s\n", buffer);
-            strcpy(args.pdu, buffer);
+            strcpy(args->pdu, buffer);
             handleUdpPacket((void *)&args);
+            if (end_register_phase) {
+                end_register_phase = false;
+                pthread_exit(NULL);
+                return NULL;
+            }
         }
-        else if (packets_sent <= p) {
+        if (packets_sent < n) {
             if ((bytes_sent = sendto(sock, &pdu, sizeof(pdu), 0, (struct sockaddr*)&serveraddr, sizeof(serveraddr))) == -1) {
                 printError("Error a l'enviar pdu.");
             }
             packets_sent += 1;
             printf("Num total paquets enviats: %d\n", packets_sent);
-            sprintf(message, "Enviatp -> bytes: %d  paquet: %x  id transmissor: %s  id comunicació: %s  dades: %s", bytes_sent, pdu.packet_type, pdu.id_transmitter, pdu.id_communication, pdu.data);
-            printDebug(message);
-        }
-        else if (packets_sent > p && packets_sent < n) {
-            if ((bytes_sent = sendto(sock, &pdu, sizeof(pdu), 0, (struct sockaddr*)&serveraddr, sizeof(serveraddr))) == -1) {
-                printError("Error a l'enviar pdu.");
+        
+            if (timeout_s < (q * t)) {
+                timeout_s = timeout_s + t;
+                timeout.tv_sec = timeout_s;
+                printf("Timeout incrementat a: %ld\n", timeout.tv_sec);
             }
-            packets_sent += 1;
-            printf("Num total paquets enviats: %d\n", packets_sent);
-            if (packets_sent > p) {
-                if (timeout.tv_sec < (q * t)) {
-                    timeout.tv_sec = timeout.tv_sec + t;
-                    printf("Timeout incrementat a: %ld\n", timeout.tv_sec);
-                }
+            else if (packets_sent < n && timeout_s == (q * t)) {
+                timeout.tv_sec = timeout_s;
+                printf("Timeout a: %ld\n", timeout.tv_sec);
             }
-            sprintf(message, "Enviatpp -> bytes: %d  paquet: %x  id transmissor: %s  id comunicació: %s  dades: %s", bytes_sent, pdu.packet_type, pdu.id_transmitter, pdu.id_communication, pdu.data);
+            
+            sprintf(message, "Enviat -> bytes: %d  paquet: %x  id transmissor: %s  id comunicació: %s  dades: %s", bytes_sent, pdu.packet_type, pdu.id_transmitter, pdu.id_communication, pdu.data);
             printDebug(message);
         }
         else if (packets_sent == n) {
             break;
         }
     }
-    printf("Waiting 2 s\n");
+    printDebug("Esperant 2 s\n");
     sleep(u);
-    return NULL;
-}
-
-
-void* handleRegister(void* argp) {
-    struct register_arg_struct *args = argp;
-    int sock = args->sock;
-    struct sockaddr_in serveraddr = args->serveraddr;
-
-
-    int register_number = 0;
-    while (register_number < o) {
-        registerPhase(sock, serveraddr);
-        register_number += 1;
-        printf("Fase de registre número %d finalitzada\n", register_number);
-    }
-    
-    printInfo("No s'ha pogut contactar amb el servidor");
+    free(message);
     pthread_exit(NULL);
     return NULL;
 }
 
-struct PduUdp unpackPduUdp(char *data) {
-    int i;
+
+struct PduUdp unpackPduUdp(char* data) {
     char* message = malloc(sizeof(char) * 100);
     
     printDebug("---------------- UNPACK PDU --------------");
@@ -533,12 +550,102 @@ struct PduUdp unpackPduUdp(char *data) {
     memcpy(pdu.data, data + 23, sizeof(char) * 61);
     sprintf(message, "Dades: %s", pdu.data);
     printDebug(message);
+    free(message);
     return pdu;
+}
+
+
+void* handleAlive(void* argp) {
+    struct register_arg_struct *args = argp;
+    int sock = args->sock;
+    struct sockaddr_in serveraddr = args->serveraddr;
+
+    int bytes_sent;
+    char* message = malloc(sizeof(char)*100);
+    struct PduUdp pdu = packPduUdp(ALIVE, client.id_client, server.id_communication, "");
+
+
+    /* SELECT */
+    struct timeval timeout;
+    timeout.tv_sec = v;
+    timeout.tv_usec = 0;
+    int timeout_s = v;
+    
+    fd_set rset;
+    
+    int maxsock = sock + 1;
+    int input;
+
+    ssize_t bytes_received;
+    socklen_t len;
+    char buffer[84];
+    FD_ZERO(&rset);
+    FD_SET(sock, &rset);
+
+    while (1) {
+
+        input = select(maxsock, &rset, NULL, NULL, &timeout);
+
+        if (FD_ISSET(sock, &rset)) {
+            len = sizeof(serveraddr);
+            bytes_received = recvfrom(sock, buffer, sizeof(buffer), 0, (struct sockaddr*)&serveraddr, &len);
+            printf("Bytes rebuts: %ld\n", bytes_received);
+            printf("%s\n", buffer);
+            struct PduUdp pdu_received = unpackPduUdp(buffer);
+            timeout.tv_sec = timeout_s;
+            if (server.id_server == pdu_received.id_transmitter) {
+                if (server.id_communication == pdu_received.id_communication) {
+                    if (client.id_client == pdu_received.data) {
+                        
+                    }
+                    else {
+                        sprintf(message, "Error en el valor del camp dades (rebut: %s, esperat: %s)", pdu_received.data, client.id_client);
+                        printDebug(message);
+                        client.state = NOT_REGISTERED;
+                        printClientState();
+                    }
+
+                }
+                else {
+                    sprintf(message, "Error en el valor del camp id. com. (rebut: %s, esperat: %s)", pdu_received.id_communication, server.id_communication);
+                    printDebug(message);
+                    client.state = NOT_REGISTERED;
+                    printClientState();
+                }    
+            } 
+            else {
+                sprintf(message, "Error en les dades d'identificació del servidor (rebut ip: %d, id: %s)", serveraddr.sin_addr.s_addr, pdu_received.id_transmitter);
+                printDebug(message);
+                client.state = NOT_REGISTERED;
+                printClientState();
+            }
+        }
+    }
+    
+
+
+
+
+
+
+
+
+
+    if ((bytes_sent = sendto(sock, &pdu, sizeof(pdu), 0, (struct sockaddr*)&serveraddr, sizeof(serveraddr))) == -1) {
+        printError("Error a l'enviar pdu.");
+        printf("%d\n", errno);
+    }
+    sprintf(message, "Enviat -> bytes: %d  paquet: %x  id transmissor: %s  id comunicació: %s  dades: %s", bytes_sent, pdu.packet_type, pdu.id_transmitter, pdu.id_communication, pdu.data);
+    printDebug(message);
+
+
+    free(message);
 }
 
 
 
 void setup() {
+    char* message = malloc(sizeof(char)*100);
     int sock_udp;
 
     struct sockaddr_in serveraddr;
@@ -556,17 +663,33 @@ void setup() {
     serveraddr.sin_addr.s_addr = htonl(INADDR_ANY);
     //memcpy((char *) &serveraddr.sin_addr.s_addr, he->h_addr_list[0], he->h_length);
 
-    pthread_t thread;
+    pthread_t thread_REGISTER, thread_ALIVE;
     args.sock = sock_udp;
     args.serveraddr = serveraddr;
     
-    if (pthread_create(&thread, NULL, &handleRegister, (void *)&args) != 0) {
-        printf("ERROR creating thread");
+    while (register_number < 3) {
+        sprintf(message, "Procés de subscripció: %d", register_number);
+        printInfo(message);
+        if (pthread_create(&thread_REGISTER, NULL, &registerPhase, (void *)&args) != 0) {
+            printf("ERROR creating thread");
+        }
+        
+        pthread_join(thread_REGISTER, NULL);
+
+        if (client.state == REGISTERED) {
+            if (pthread_create(&thread_ALIVE, NULL, &handleAlive, (void *)&args) != 0) {
+                printf("ERROR creating thread");
+            }
+        }
+        
+        pthread_join(thread_ALIVE, NULL);
+
+        printInfo("No s'ha pogut contactar amb el servidor");
+        register_number += 1;
     }
     
-    
-    pthread_join(thread, NULL);
-    
+
+    free(message);
 }
 
 
