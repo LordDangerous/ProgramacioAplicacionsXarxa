@@ -52,15 +52,15 @@ struct Client {
     char id_client[10];
     int state;
     int tcp_port;
-    char elements[15*5];
+    char elements[15*5+4];
     char server[9];
     int server_udp;
 } client;
 
 
 struct Server {
-    char id_server[10];
-    char id_communication[10];
+    char id_server[11];
+    char id_communication[11];
     int udp_port;
     int tcp_port;
 } server;
@@ -97,7 +97,7 @@ void printInfo(char* message);
 void printError(char* message);
 void readFile();
 void setup();
-void handleUdpPacket(int sock, struct sockaddr_in serveraddr, char* data_received);
+void handleUdpPacket(char* data_received);
 struct PduUdp packPduUdp(int packet_type, char* id_transmitter, char* id_communication, char* data);
 struct PduUdp unpackPduUdp(char* data);
 void* registerPhase(void* argp);
@@ -303,7 +303,7 @@ struct PduUdp packPduUdp(int packet_type, char* id_transmitter, char* id_communi
     return pdu;
 }
 
-void handleUdpPacket(int sock, struct sockaddr_in serveraddr, char* data_received) {
+void handleUdpPacket(char* data_received) {
     printf("Rebut paquet UDP, creat procés per atendre'l\n");
     char* message = malloc(sizeof(char)*1000);
 
@@ -312,23 +312,23 @@ void handleUdpPacket(int sock, struct sockaddr_in serveraddr, char* data_receive
 
     if (client.state == WAIT_ACK_REG && pdu.packet_type == REG_ACK) {
         printInfo("Rebut paquet REG_ACK");
-        strncpy(server.id_server, pdu.id_transmitter, 10);
-        strncpy(server.id_communication, pdu.id_communication, 10);
-        printf("IDCOM: %s\n", server.id_communication);
+        strncpy(server.id_server, pdu.id_transmitter, 11);
+        strncpy(server.id_communication, pdu.id_communication, 11);
         server.udp_port = atoi(pdu.data);
 
-        int sock_udp_server = socket(AF_INET, SOCK_DGRAM, 0);
+        int sock_udp_server;
+        sock_udp_server = socket(AF_INET, SOCK_DGRAM, 0);
     
-        serveraddr.sin_family = AF_INET;
-        serveraddr.sin_port = htons(server.udp_port);
-        serveraddr.sin_addr.s_addr = htonl(INADDR_ANY);
+        struct sockaddr_in serveraddrnew;
+        serveraddrnew.sin_family = AF_INET;
+        serveraddrnew.sin_port = htons(server.udp_port);
+        serveraddrnew.sin_addr.s_addr = htonl(INADDR_ANY);
 
         int bytes_sent;
-        char data[5 + 15*5 + 1];
-        sprintf(data, "%d,%s", client.tcp_port, client.elements);
-        printf("Data: %s", data);
+        char data[5 + 1 + 15*5+4 + 1];
+        snprintf(data, sizeof(data), "%d,%s%c", client.tcp_port, client.elements, '\0');
         struct PduUdp pduREG_INFO = packPduUdp(REG_INFO, client.id_client, server.id_communication, data);
-        if ((bytes_sent = sendto(sock_udp_server, &pduREG_INFO, sizeof(pduREG_INFO), 0, (struct sockaddr*)&serveraddr, sizeof(serveraddr))) == -1) {
+        if ((bytes_sent = sendto(sock_udp_server, &pduREG_INFO, sizeof(pduREG_INFO), 0, (struct sockaddr*)&serveraddrnew, sizeof(serveraddrnew))) == -1) {
             printError("Error a l'enviar pdu.");
             printf("%d\n", errno);
         }
@@ -337,7 +337,7 @@ void handleUdpPacket(int sock, struct sockaddr_in serveraddr, char* data_receive
 
         client.state = WAIT_ACK_INFO;
         printClientState();
-
+        
         /* SELECT */
         struct timeval timeout;
         timeout.tv_sec = 2*t;
@@ -345,64 +345,66 @@ void handleUdpPacket(int sock, struct sockaddr_in serveraddr, char* data_receive
         
         fd_set rset;
         
-        int maxsock = sock + 1;
+        int maxsock = sock_udp_server + 1;
         int input;
 
         ssize_t bytes_received;
         socklen_t len;
         char buffer[84];
         FD_ZERO(&rset);
-        FD_SET(sock, &rset);
+        FD_SET(sock_udp_server, &rset);
+        
+        while(timeout.tv_sec) {
 
-        input = select(maxsock, &rset, NULL, NULL, &timeout);
+            input = select(maxsock, &rset, NULL, NULL, NULL);
 
-        if (FD_ISSET(sock, &rset)) {
-            len = sizeof(serveraddr);
-            bytes_received = recvfrom(sock, buffer, sizeof(buffer), 0, (struct sockaddr*)&serveraddr, &len);
-            printf("Bytes rebuts: %ld\n", bytes_received);
-            printf("%s\n", buffer);
-            struct PduUdp pdu_received = unpackPduUdp(buffer);
+            if (input) {
+                if (FD_ISSET(sock_udp_server, &rset)) {
+                    len = sizeof(serveraddrnew);
+                    bytes_received = recvfrom(sock_udp_server, buffer, sizeof(buffer), 0, (struct sockaddr*)&serveraddrnew, &len);
+                    printf("Bytes rebuts: %ld\n", bytes_received);
+                    struct PduUdp pdu_received = unpackPduUdp(buffer);
 
-            if (client.state == WAIT_ACK_INFO ) {
-                if (server.id_server == pdu_received.id_transmitter) {
-                    if (server.id_communication == pdu_received.id_communication) {
-                        if (pdu_received.packet_type == INFO_ACK) {
-                            client.state = REGISTERED;
-                            printClientState();
-                            //END REGISTER
-                            pthread_exit(NULL);
-                            return;
-                        }
-                        else if (pdu_received.packet_type == INFO_NACK) {
-                            sprintf(message, "Descartat paquet de informació adicional de subscripció, motiu: %s", pdu_received.data);
-                            printInfo(message);
-                            client.state = NOT_REGISTERED;
-                            printClientState();
-                            //CONTINUAR REGISTRE
-                            return;
-                        }
+                    if (client.state == WAIT_ACK_INFO ) {
+                        if (strcmp(server.id_server, pdu_received.id_transmitter) == 0) {
+                            if (strcmp(server.id_communication, pdu_received.id_communication) == 0) {
+                                if (pdu_received.packet_type == INFO_ACK) {
+                                    client.state = REGISTERED;
+                                    printClientState();
+                                    //END REGISTER
+                                    pthread_exit(NULL);
+                                    return;
+                                }
+                                else if (pdu_received.packet_type == INFO_NACK) {
+                                    sprintf(message, "Descartat paquet de informació adicional de subscripció, motiu: %s", pdu_received.data);
+                                    printInfo(message);
+                                    client.state = NOT_REGISTERED;
+                                    printClientState();
+                                    //CONTINUAR REGISTRE
+                                    return;
+                                }
+                                else {
+                                    printInfo("Paquet incorrecte");
+                                }
+                            }
+                            else {
+                                sprintf(message, "Error en el valor del camp id. com. (rebut: %s, esperat: %s)", pdu_received.id_communication, server.id_communication);
+                                printDebug(message);
+                            }
+                            
+                        } 
                         else {
-                            printInfo("Paquet incorrecte");
+                            sprintf(message, "Error en les dades d'identificació del servidor (rebut ip: %s, id: %s)", server.id_server, pdu_received.id_transmitter);
+                            printDebug(message);
                         }
                     }
-                    else {
-                        sprintf(message, "Error en el valor del camp id. com. (rebut: %s, esperat: %s)", pdu_received.id_communication, server.id_communication);
-                        printDebug(message);
-                    }
-                    
-                } 
-                else {
-                    sprintf(message, "Error en les dades d'identificació del servidor (rebut ip: %d, id: %s)", serveraddr.sin_addr.s_addr, pdu_received.id_transmitter);
-                    printDebug(message);
-                }
-            }
+                }  
+            }            
         }
-        else {
-            client.state = NOT_REGISTERED;
-            printClientState();
-            //NOU PROCÉS REGISTRE
-            end_register_phase = true;
-        }
+        client.state = NOT_REGISTERED;
+        printClientState();
+        //NOU PROCÉS REGISTRE
+        end_register_phase = true;
     } 
     else if (pdu.packet_type == REG_NACK) {
         //CONTINUAR REGISTRE
@@ -419,6 +421,7 @@ void handleUdpPacket(int sock, struct sockaddr_in serveraddr, char* data_receive
         //NOU PROCÉS REGISTRE
         end_register_phase = true;
     }
+    printf("B");
     free(message);
     pthread_exit(NULL);
     return;
@@ -482,7 +485,7 @@ void* registerPhase(void* argp) {
             len = sizeof(serveraddr);
             bytes_received = recvfrom(sock, buffer, sizeof(buffer), 0, (struct sockaddr*)&serveraddr, &len);
             printf("Bytes rebuts: %ld\n", bytes_received);
-            handleUdpPacket(sock, serveraddr, buffer);
+            handleUdpPacket(buffer);
             if (end_register_phase) {
                 end_register_phase = false;
                 pthread_exit(NULL);
@@ -523,7 +526,6 @@ void* registerPhase(void* argp) {
 
 struct PduUdp unpackPduUdp(char* data) {
     char* message = malloc(sizeof(char) * 1000);
-    char idcom[11] = {0};
     
     printDebug("---------------- UNPACK PDU --------------");
     struct PduUdp pdu;
