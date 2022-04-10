@@ -546,7 +546,7 @@ def check_3_alive(clients):
         if client.state == "REGISTERED" and time.time() - client.time_alive > 3 and client.time_alive != 0:
             client.state = "DISCONNECTED"
             logging.info(f"Dispositiu {client.id_client} no ha rebut el primer ALIVE en 3 segons")
-        if client.state == "SEND_ALIVE" and time.time() - client.counter_alive > 7:
+        if client.state == "SEND_ALIVE" and time.time() - client.counter_alive > 6:
             client.state = "DISCONNECTED"
             logging.info(f"Client {client.id_client} desconnectat per no enviar 3 ALIVE consecutius")
 

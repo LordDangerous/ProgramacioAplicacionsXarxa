@@ -63,6 +63,7 @@ struct Server {
     char id_communication[11];
     int udp_port;
     int tcp_port;
+    time_t time_alive;
 } server;
 
 
@@ -76,8 +77,13 @@ struct PduUdp {
 struct register_arg_struct {
     int sock;
     struct sockaddr_in serveraddr;
-    char* pdu;
 } args;
+
+struct alive_arg_struct {
+    int sock;
+    struct sockaddr_in serveraddr;
+    struct PduUdp pdu;
+} argAlive;
 
 
 /* Temps registre */
@@ -88,6 +94,7 @@ struct register_arg_struct {
 #define p 2
 #define q 4
 #define v 2
+#define r 2
 
 
 /* Declaració funcions */
@@ -102,6 +109,8 @@ struct PduUdp packPduUdp(int packet_type, char* id_transmitter, char* id_communi
 struct PduUdp unpackPduUdp(char* data);
 void* registerPhase(void* argp);
 void* handleAlive(void* argp);
+void* sendAlives(void* argAlive);
+void* check_s_alive();
 
 
 
@@ -550,91 +559,263 @@ struct PduUdp unpackPduUdp(char* data) {
 }
 
 
+void* sendAlives(void* argAlive) {
+    char* message = malloc(sizeof(char)*1000);
+    struct alive_arg_struct *args = argAlive;
+    int sock = args->sock;
+    struct sockaddr_in serveraddr = args->serveraddr;
+    struct PduUdp pdu = args->pdu;
+
+    printf("SENDING ALIVES\n");
+    printf("%d\n", sock);
+    printf("%d\n", serveraddr.sin_port);
+    printf("%s\n", pdu.id_transmitter);
+
+
+    int bytes_sent;
+    time_t start_t, end_t, total_t;
+    start_t = time(NULL);
+
+    while (client.state != NOT_REGISTERED) {
+        end_t = time(NULL);
+        total_t = end_t - start_t;
+        if (total_t == v) {
+            if ((bytes_sent = sendto(sock, &pdu, sizeof(pdu), 0, (struct sockaddr*)&serveraddr, sizeof(serveraddr))) == -1) {
+                printError("Error a l'enviar pdu des de sendAlives.");
+                printf("%d\n", errno);
+            }
+            sprintf(message, "Enviat ALIVE -> bytes: %d  paquet: %x  id transmissor: %s  id comunicació: %s  dades: %s", bytes_sent, pdu.packet_type, pdu.id_transmitter, pdu.id_communication, pdu.data);
+            printDebug(message);
+            start_t = time(NULL);
+        }
+    }
+    
+
+
+    
+    free(message);
+    pthread_exit(NULL);
+    return NULL;
+}
+
+
+
+
+void* check_s_alive() {
+    time_t actual_time;
+    actual_time = time(NULL);
+
+    printf("CHECKK: %ld\n", (actual_time - server.time_alive));
+
+    if ((actual_time - server.time_alive) > 6) {
+        client.state = DISCONNECTED;
+        printInfo("S'ha perdut la connexió amb el servidor al no rebre 3 ALIVE consecutius");
+    }
+    pthread_exit(NULL);
+    return NULL;
+}
+
+
+
+
+
+
+
+
 void* handleAlive(void* argp) {
     struct register_arg_struct *args = argp;
-    int sock = args->sock;
+    int sock_udp = args->sock;
     struct sockaddr_in serveraddr = args->serveraddr;
 
     int bytes_sent;
     char* message = malloc(sizeof(char)*1000);
     struct PduUdp pdu = packPduUdp(ALIVE, client.id_client, server.id_communication, "");
 
+    if ((bytes_sent = sendto(sock_udp, &pdu, sizeof(pdu), 0, (struct sockaddr*)&serveraddr, sizeof(serveraddr))) == -1) {
+        printError("Error a l'enviar pdu.");
+        printf("%d\n", errno);
+    }
+    sprintf(message, "Enviat 1r ALIVE -> bytes: %d  paquet: %x  id transmissor: %s  id comunicació: %s  dades: %s", bytes_sent, pdu.packet_type, pdu.id_transmitter, pdu.id_communication, pdu.data);
+    printDebug(message);
+    
 
+    
     /* SELECT */
     struct timeval timeout;
-    timeout.tv_sec = v;
+    timeout.tv_sec = r;
     timeout.tv_usec = 0;
-    int timeout_s = v;
     
     fd_set rset;
     
-    int maxsock = sock + 1;
-    int input;
+    int maxsock = sock_udp + 1;
 
     ssize_t bytes_received;
     socklen_t len;
     char buffer[84];
     FD_ZERO(&rset);
-    FD_SET(sock, &rset);
+    FD_SET(sock_udp, &rset);
 
-    while (1) {
+    select(maxsock, &rset, NULL, NULL, &timeout);
 
-        input = select(maxsock, &rset, NULL, NULL, &timeout);
-
-        if (FD_ISSET(sock, &rset)) {
-            len = sizeof(serveraddr);
-            bytes_received = recvfrom(sock, buffer, sizeof(buffer), 0, (struct sockaddr*)&serveraddr, &len);
-            printf("Bytes rebuts: %ld\n", bytes_received);
-            printf("%s\n", buffer);
-            struct PduUdp pdu_received = unpackPduUdp(buffer);
-            timeout.tv_sec = timeout_s;
-            if (server.id_server == pdu_received.id_transmitter) {
-                if (server.id_communication == pdu_received.id_communication) {
-                    if (client.id_client == pdu_received.data) {
-                        
+    if (FD_ISSET(sock_udp, &rset)) {
+        len = sizeof(serveraddr);
+        bytes_received = recvfrom(sock_udp, buffer, sizeof(buffer), 0, (struct sockaddr*)&serveraddr, &len);
+        printf("Bytes rebuts: %ld\n", bytes_received);
+        struct PduUdp pdu_received = unpackPduUdp(buffer);
+        if (pdu.packet_type == ALIVE) {
+            if (strcmp(server.id_server, pdu_received.id_transmitter) == 0) {
+                if (strcmp(server.id_communication, pdu_received.id_communication) == 0){
+                    if (strncmp(client.id_client, pdu_received.data, sizeof(client.id_client)) == 0){
+                        if (client.state == REGISTERED) {
+                            client.state = SEND_ALIVE;
+                        }
                     }
                     else {
                         sprintf(message, "Error en el valor del camp dades (rebut: %s, esperat: %s)", pdu_received.data, client.id_client);
                         printDebug(message);
                         client.state = NOT_REGISTERED;
                         printClientState();
+                        pthread_exit(NULL);
+                        return NULL;
                     }
-
                 }
                 else {
                     sprintf(message, "Error en el valor del camp id. com. (rebut: %s, esperat: %s)", pdu_received.id_communication, server.id_communication);
                     printDebug(message);
                     client.state = NOT_REGISTERED;
                     printClientState();
+                    pthread_exit(NULL);
+                    return NULL;
                 }    
             } 
             else {
-                sprintf(message, "Error en les dades d'identificació del servidor (rebut ip: %d, id: %s)", serveraddr.sin_addr.s_addr, pdu_received.id_transmitter);
+                sprintf(message, "Error en les dades d'identificació del servidor (rebut ip: %d, id: %s)", serveraddr.sin_port, pdu_received.id_transmitter);
                 printDebug(message);
+                client.state = NOT_REGISTERED;
+                printClientState();
+                pthread_exit(NULL);
+                return NULL;
+            }
+        }
+        else if (pdu.packet_type == ALIVE_REJ) {
+            printInfo("Rebut paquet ALIVE_REJ");
+            client.state = NOT_REGISTERED;
+            printClientState();
+        }
+    }
+    else {
+        client.state = NOT_REGISTERED;
+        printClientState();
+        pthread_exit(NULL);
+        return NULL;
+    }
+
+    argAlive.sock = sock_udp;
+    argAlive.serveraddr = serveraddr;
+    argAlive.pdu = pdu;
+    
+    pthread_t thread_SENDALIVE;
+    if (pthread_create(&thread_SENDALIVE, NULL, &sendAlives, (void *)&argAlive) != 0) {
+        printf("ERROR creating thread");
+    }
+
+    
+    int sock_tcp;
+    sock_tcp = socket(AF_INET, SOCK_STREAM, 0);
+    struct sockaddr_in tcpaddr;
+
+    tcpaddr.sin_family = AF_INET;
+    tcpaddr.sin_port = htons(client.tcp_port);
+    tcpaddr.sin_addr.s_addr = htonl(INADDR_ANY);
+
+    bind(sock_tcp, (struct sockaddr*)&tcpaddr, sizeof(tcpaddr));
+    listen(sock_tcp, 10);
+
+    FD_ZERO(&rset);
+
+    maxsock = max(sock_udp, sock_tcp) + 1;
+
+    while(client.state == SEND_ALIVE) {
+        FD_SET(sock_udp, &rset);
+        FD_SET(sock_tcp, &rset);
+
+        select(maxsock, &rset, NULL, NULL, NULL);
+
+        //UDP
+        if (FD_ISSET(sock_udp, &rset)) {
+            len = sizeof(serveraddr);
+            bytes_received = recvfrom(sock_udp, buffer, sizeof(buffer), 0, (struct sockaddr*)&serveraddr, &len);
+            printf("Bytes rebuts: %ld\n", bytes_received);
+            struct PduUdp pdu_received = unpackPduUdp(buffer);
+            if (pdu.packet_type == ALIVE) {
+                if (strcmp(server.id_server, pdu_received.id_transmitter) == 0) {
+                    if (strcmp(server.id_communication, pdu_received.id_communication) == 0){
+                        if (strncmp(client.id_client, pdu_received.data, sizeof(client.id_client)) == 0){
+                            printInfo("REBUT PAQUET ALIVE CORRECTE");
+                            //Reiniciar temps ALIVE (per als 3 consecutius)
+                            server.time_alive = time(NULL);
+                        }
+                        else {
+                            sprintf(message, "Error en el valor del camp dades (rebut: %s, esperat: %s)", pdu_received.data, client.id_client);
+                            printDebug(message);
+                            client.state = NOT_REGISTERED;
+                            printClientState();
+                            pthread_exit(NULL);
+                            return NULL;
+                        }
+                    }
+                    else {
+                        sprintf(message, "Error en el valor del camp id. com. (rebut: %s, esperat: %s)", pdu_received.id_communication, server.id_communication);
+                        printDebug(message);
+                        client.state = NOT_REGISTERED;
+                        printClientState();
+                        pthread_exit(NULL);
+                        return NULL;
+                    }    
+                } 
+                else {
+                    sprintf(message, "Error en les dades d'identificació del servidor (rebut ip: %d, id: %s)", serveraddr.sin_port, pdu_received.id_transmitter);
+                    printDebug(message);
+                    client.state = NOT_REGISTERED;
+                    printClientState();
+                    pthread_exit(NULL);
+                    return NULL;
+                }
+            }
+            else if (pdu.packet_type == ALIVE_REJ) {
+                printInfo("Rebut paquet ALIVE_REJ");
                 client.state = NOT_REGISTERED;
                 printClientState();
             }
         }
+        else {
+            printInfo("Rebut paquet desconegut");
+        }
+
+        //TCP
+        if (FD_ISSET(sock_tcp, &rset)) {
+            len = sizeof(serveraddr);
+            bytes_received = recvfrom(sock_udp, buffer, sizeof(buffer), 0, (struct sockaddr*)&serveraddr, &len);
+            printf("Bytes rebuts: %ld\n", bytes_received);
+            //FALTA FER PDU TCP
+        }
+
+        pthread_t thread_check_s_alive;
+        if (pthread_create(&thread_check_s_alive, NULL, &check_s_alive, NULL) != 0) {
+            printf("ERROR creating thread");
+        }
     }
-    
+
+    close(sock_tcp);
 
 
 
 
-
-
-
-
-
-    if ((bytes_sent = sendto(sock, &pdu, sizeof(pdu), 0, (struct sockaddr*)&serveraddr, sizeof(serveraddr))) == -1) {
-        printError("Error a l'enviar pdu.");
-        printf("%d\n", errno);
-    }
-    sprintf(message, "Enviat -> bytes: %d  paquet: %x  id transmissor: %s  id comunicació: %s  dades: %s", bytes_sent, pdu.packet_type, pdu.id_transmitter, pdu.id_communication, pdu.data);
-    printDebug(message);
 
 
     free(message);
+    pthread_exit(NULL);
+    return NULL;
 }
 
 
@@ -679,12 +860,15 @@ void setup() {
         
         pthread_join(thread_ALIVE, NULL);
 
-        printInfo("No s'ha pogut contactar amb el servidor");
         register_number += 1;
     }
-    
+    sprintf(message, "Superat el nombre de processos de subscripció (%d)", register_number);
+    printInfo(message);
+
+
 
     free(message);
+    exit(1);
 }
 
 
