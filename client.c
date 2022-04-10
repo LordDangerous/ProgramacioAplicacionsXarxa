@@ -76,7 +76,7 @@ struct PduUdp {
 struct register_arg_struct {
     int sock;
     struct sockaddr_in serveraddr;
-    char pdu[84];
+    char* pdu;
 } args;
 
 
@@ -97,7 +97,7 @@ void printInfo(char* message);
 void printError(char* message);
 void readFile();
 void setup();
-void* handleUdpPacket(void* argp);
+void handleUdpPacket(int sock, struct sockaddr_in serveraddr, char* data_received);
 struct PduUdp packPduUdp(int packet_type, char* id_transmitter, char* id_communication, char* data);
 struct PduUdp unpackPduUdp(char* data);
 void* registerPhase(void* argp);
@@ -123,6 +123,7 @@ int max (int x, int y) {
 }
 
 void printClientState() {
+    char* message = malloc(sizeof(char)*1000);
     char* state;
     if (client.state == 0xf0) {
         state = "DISCONNECTED";
@@ -145,8 +146,7 @@ void printClientState() {
     else if (client.state == 0xf6) {
         state = "SEND_ALIVE";
     }
-
-    char* message = malloc(sizeof(char)*100);
+    
     sprintf(message, "Client passa a l'estat: %s", state);
     printInfo(message);
     free(message);
@@ -193,7 +193,7 @@ void printError(char* message) {
 
 
 void readFile() {
-    char* message = malloc(sizeof(char)*100);
+    char* message = malloc(sizeof(char)*1000);
     FILE* fp;
     char* key;
     char* value;
@@ -274,56 +274,47 @@ void readFile() {
 
 
 struct PduUdp packPduUdp(int packet_type, char* id_transmitter, char* id_communication, char* data){
+    char* message = malloc(sizeof(char)*1000);   
+
+    printDebug("---------------- PACK PDU --------------");
     struct PduUdp pdu;
+
     pdu.packet_type = packet_type;
+    sprintf(message, "Tipus paquet: %x", pdu.packet_type);
+    printDebug(message);
+
     char id_client[11] = {0};
     strncpy(id_client, id_transmitter, 10);
+    memcpy(pdu.id_transmitter, id_client, sizeof(char)*11);
+    sprintf(message, "Id transmissor: %s", pdu.id_transmitter);
+    printDebug(message);
 
-    strcpy(pdu.id_transmitter, id_client);
-    strcpy(pdu.id_communication, id_communication);
-    strcpy(pdu.data, data);
+    memcpy(pdu.id_communication, id_communication, sizeof(char)*10);
+    sprintf(message, "Id comunicació: %s", pdu.id_communication);
+    printDebug(message);
 
-    char* pdu_message = malloc(sizeof(char)*100);
-    sprintf(pdu_message, "PDU -> tipus paquet: %x id transmissor: %s id comunicació: %s dades: %s\n", pdu.packet_type, pdu.id_transmitter, pdu.id_communication, pdu.data);
-    printDebug(pdu_message);
-    free(pdu_message);
-    
+    memcpy(pdu.data, data, sizeof(char)*61);
+    sprintf(message, "Dades: %s", pdu.data);
+    printDebug(message);
+
+    printDebug("---------------- END PACK PDU --------------");
+
+    free(message);
     return pdu;
 }
 
-void* handleUdpPacket(void* argp) {
+void handleUdpPacket(int sock, struct sockaddr_in serveraddr, char* data_received) {
     printf("Rebut paquet UDP, creat procés per atendre'l\n");
-    char* message = malloc(sizeof(char)*100);
-    struct register_arg_struct *args = argp;
-    int sock = args->sock;
-    struct sockaddr_in serveraddr = args->serveraddr;
-    char data_received[84];
-    memcpy(data_received, args->pdu, 84);
-    printf("SIZE HANDLE: %ld\n", sizeof(data_received));
+    char* message = malloc(sizeof(char)*1000);
 
     struct PduUdp pdu;
     pdu = unpackPduUdp(data_received);
 
-    // struct PduUdp pdu;
-    // pdu.packet_type = data_received[0];
-    // sprintf(message, "Tipus paquet: %x", pdu.packet_type);
-    // printDebug(message);
-    // memcpy(pdu.id_transmitter, data_received + 1, sizeof(char) * 11);
-    // sprintf(message, "Id transmissor: %s", pdu.id_transmitter);
-    // printDebug(message);
-    // memcpy(pdu.id_communication, data_received + 12, sizeof(char) * 11);
-    // sprintf(message, "Id comunicació: %s", pdu.id_communication);
-    // printDebug(message);
-    // memcpy(pdu.data, data_received + 23, sizeof(char) * 61);
-    // sprintf(message, "Dades: %s", pdu.data);
-    // printDebug(message);
-    
-
-
     if (client.state == WAIT_ACK_REG && pdu.packet_type == REG_ACK) {
         printInfo("Rebut paquet REG_ACK");
-        strcpy(server.id_server, pdu.id_transmitter);
-        strcpy(server.id_communication, pdu.id_communication);
+        strncpy(server.id_server, pdu.id_transmitter, 10);
+        strncpy(server.id_communication, pdu.id_communication, 10);
+        printf("IDCOM: %s\n", server.id_communication);
         server.udp_port = atoi(pdu.data);
 
         int sock_udp_server = socket(AF_INET, SOCK_DGRAM, 0);
@@ -335,6 +326,7 @@ void* handleUdpPacket(void* argp) {
         int bytes_sent;
         char data[5 + 15*5 + 1];
         sprintf(data, "%d,%s", client.tcp_port, client.elements);
+        printf("Data: %s", data);
         struct PduUdp pduREG_INFO = packPduUdp(REG_INFO, client.id_client, server.id_communication, data);
         if ((bytes_sent = sendto(sock_udp_server, &pduREG_INFO, sizeof(pduREG_INFO), 0, (struct sockaddr*)&serveraddr, sizeof(serveraddr))) == -1) {
             printError("Error a l'enviar pdu.");
@@ -379,7 +371,7 @@ void* handleUdpPacket(void* argp) {
                             printClientState();
                             //END REGISTER
                             pthread_exit(NULL);
-                            return NULL;
+                            return;
                         }
                         else if (pdu_received.packet_type == INFO_NACK) {
                             sprintf(message, "Descartat paquet de informació adicional de subscripció, motiu: %s", pdu_received.data);
@@ -387,7 +379,7 @@ void* handleUdpPacket(void* argp) {
                             client.state = NOT_REGISTERED;
                             printClientState();
                             //CONTINUAR REGISTRE
-                            return NULL;
+                            return;
                         }
                         else {
                             printInfo("Paquet incorrecte");
@@ -414,7 +406,7 @@ void* handleUdpPacket(void* argp) {
     } 
     else if (pdu.packet_type == REG_NACK) {
         //CONTINUAR REGISTRE
-        return NULL;
+        return;
     }
     else if (pdu.packet_type == REG_REJ) {
         client.state = NOT_REGISTERED;
@@ -429,7 +421,7 @@ void* handleUdpPacket(void* argp) {
     }
     free(message);
     pthread_exit(NULL);
-    return NULL;
+    return;
 }
 
 
@@ -443,7 +435,7 @@ void* registerPhase(void* argp) {
     int packets_sent = 0;
     client.state = NOT_REGISTERED;
     printClientState();
-    char* message = malloc(sizeof(char)*100);
+    char* message = malloc(sizeof(char)*1000);
     struct PduUdp pdu;
     pdu = packPduUdp(REG_REQ, client.id_client, "0000000000", "");
     int bytes_sent;
@@ -490,9 +482,7 @@ void* registerPhase(void* argp) {
             len = sizeof(serveraddr);
             bytes_received = recvfrom(sock, buffer, sizeof(buffer), 0, (struct sockaddr*)&serveraddr, &len);
             printf("Bytes rebuts: %ld\n", bytes_received);
-            printf("%s\n", buffer);
-            strcpy(args->pdu, buffer);
-            handleUdpPacket((void *)&args);
+            handleUdpPacket(sock, serveraddr, buffer);
             if (end_register_phase) {
                 end_register_phase = false;
                 pthread_exit(NULL);
@@ -532,12 +522,12 @@ void* registerPhase(void* argp) {
 
 
 struct PduUdp unpackPduUdp(char* data) {
-    char* message = malloc(sizeof(char) * 100);
+    char* message = malloc(sizeof(char) * 1000);
+    char idcom[11] = {0};
     
     printDebug("---------------- UNPACK PDU --------------");
-    printf("SIZE: %ld\n", strlen(data));
-    
     struct PduUdp pdu;
+    memset(&pdu, 0, sizeof(pdu));
     pdu.packet_type = data[0];
     sprintf(message, "Tipus paquet: %x", pdu.packet_type);
     printDebug(message);
@@ -547,9 +537,12 @@ struct PduUdp unpackPduUdp(char* data) {
     memcpy(pdu.id_communication, data + 12, sizeof(char) * 11);
     sprintf(message, "Id comunicació: %s", pdu.id_communication);
     printDebug(message);
+
     memcpy(pdu.data, data + 23, sizeof(char) * 61);
     sprintf(message, "Dades: %s", pdu.data);
     printDebug(message);
+    printDebug("---------------- END UNPACK PDU --------------");
+
     free(message);
     return pdu;
 }
@@ -561,7 +554,7 @@ void* handleAlive(void* argp) {
     struct sockaddr_in serveraddr = args->serveraddr;
 
     int bytes_sent;
-    char* message = malloc(sizeof(char)*100);
+    char* message = malloc(sizeof(char)*1000);
     struct PduUdp pdu = packPduUdp(ALIVE, client.id_client, server.id_communication, "");
 
 
@@ -645,7 +638,7 @@ void* handleAlive(void* argp) {
 
 
 void setup() {
-    char* message = malloc(sizeof(char)*100);
+    char* message = malloc(sizeof(char)*1000);
     int sock_udp;
 
     struct sockaddr_in serveraddr;
