@@ -19,7 +19,7 @@
 #include <unistd.h>
 
 char clientFile[] = "client.cfg";
-int register_number = 0;
+int register_number = 1;
 bool end_register_phase = false;
 
 /* Packet type */
@@ -63,7 +63,6 @@ struct Server {
     char id_communication[11];
     int udp_port;
     int tcp_port;
-    time_t time_alive;
 } server;
 
 
@@ -110,8 +109,6 @@ struct PduUdp unpackPduUdp(char* data);
 void* registerPhase(void* argp);
 void* handleAlive(void* argp);
 void* sendAlives(void* argAlive);
-void* check_s_alive();
-
 
 
 
@@ -566,17 +563,11 @@ void* sendAlives(void* argAlive) {
     struct sockaddr_in serveraddr = args->serveraddr;
     struct PduUdp pdu = args->pdu;
 
-    printf("SENDING ALIVES\n");
-    printf("%d\n", sock);
-    printf("%d\n", serveraddr.sin_port);
-    printf("%s\n", pdu.id_transmitter);
-
-
     int bytes_sent;
     time_t start_t, end_t, total_t;
     start_t = time(NULL);
 
-    while (client.state != NOT_REGISTERED) {
+    while (client.state == REGISTERED || client.state == SEND_ALIVE) {
         end_t = time(NULL);
         total_t = end_t - start_t;
         if (total_t == v) {
@@ -597,29 +588,6 @@ void* sendAlives(void* argAlive) {
     pthread_exit(NULL);
     return NULL;
 }
-
-
-
-
-void* check_s_alive() {
-    time_t actual_time;
-    actual_time = time(NULL);
-
-    printf("CHECKK: %ld\n", (actual_time - server.time_alive));
-
-    if ((actual_time - server.time_alive) > 6) {
-        client.state = DISCONNECTED;
-        printInfo("S'ha perdut la connexió amb el servidor al no rebre 3 ALIVE consecutius");
-    }
-    pthread_exit(NULL);
-    return NULL;
-}
-
-
-
-
-
-
 
 
 void* handleAlive(void* argp) {
@@ -732,14 +700,17 @@ void* handleAlive(void* argp) {
     listen(sock_tcp, 10);
 
     FD_ZERO(&rset);
+    timeout.tv_sec = 0;
 
     maxsock = max(sock_udp, sock_tcp) + 1;
+
+    time_t actual_time, time_alive;
 
     while(client.state == SEND_ALIVE) {
         FD_SET(sock_udp, &rset);
         FD_SET(sock_tcp, &rset);
 
-        select(maxsock, &rset, NULL, NULL, NULL);
+        select(maxsock, &rset, NULL, NULL, &timeout);
 
         //UDP
         if (FD_ISSET(sock_udp, &rset)) {
@@ -747,13 +718,13 @@ void* handleAlive(void* argp) {
             bytes_received = recvfrom(sock_udp, buffer, sizeof(buffer), 0, (struct sockaddr*)&serveraddr, &len);
             printf("Bytes rebuts: %ld\n", bytes_received);
             struct PduUdp pdu_received = unpackPduUdp(buffer);
-            if (pdu.packet_type == ALIVE) {
+            if (pdu_received.packet_type == ALIVE) {
                 if (strcmp(server.id_server, pdu_received.id_transmitter) == 0) {
                     if (strcmp(server.id_communication, pdu_received.id_communication) == 0){
                         if (strncmp(client.id_client, pdu_received.data, sizeof(client.id_client)) == 0){
                             printInfo("REBUT PAQUET ALIVE CORRECTE");
                             //Reiniciar temps ALIVE (per als 3 consecutius)
-                            server.time_alive = time(NULL);
+                            time_alive = time(NULL);
                         }
                         else {
                             sprintf(message, "Error en el valor del camp dades (rebut: %s, esperat: %s)", pdu_received.data, client.id_client);
@@ -782,14 +753,11 @@ void* handleAlive(void* argp) {
                     return NULL;
                 }
             }
-            else if (pdu.packet_type == ALIVE_REJ) {
+            else if (pdu_received.packet_type == ALIVE_REJ) {
                 printInfo("Rebut paquet ALIVE_REJ");
                 client.state = NOT_REGISTERED;
                 printClientState();
             }
-        }
-        else {
-            printInfo("Rebut paquet desconegut");
         }
 
         //TCP
@@ -800,9 +768,13 @@ void* handleAlive(void* argp) {
             //FALTA FER PDU TCP
         }
 
-        pthread_t thread_check_s_alive;
-        if (pthread_create(&thread_check_s_alive, NULL, &check_s_alive, NULL) != 0) {
-            printf("ERROR creating thread");
+
+        //Comprovació 3 alives consecutius
+        actual_time = time(NULL);  
+
+        if ((actual_time - time_alive) > 6) {
+            client.state = DISCONNECTED;
+            printInfo("S'ha perdut la connexió amb el servidor al no rebre 3 ALIVE consecutius");
         }
     }
 
@@ -843,7 +815,7 @@ void setup() {
     args.sock = sock_udp;
     args.serveraddr = serveraddr;
     
-    while (register_number < 3) {
+    while (register_number <= 3) {
         sprintf(message, "Procés de subscripció: %d", register_number);
         printInfo(message);
         if (pthread_create(&thread_REGISTER, NULL, &registerPhase, (void *)&args) != 0) {
@@ -859,10 +831,9 @@ void setup() {
         }
         
         pthread_join(thread_ALIVE, NULL);
-
         register_number += 1;
     }
-    sprintf(message, "Superat el nombre de processos de subscripció (%d)", register_number);
+    sprintf(message, "Superat el nombre de processos de subscripció (%d)", register_number - 1);
     printInfo(message);
 
 
