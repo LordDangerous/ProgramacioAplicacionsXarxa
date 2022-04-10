@@ -36,6 +36,12 @@ bool end_register_phase = false;
 #define ALIVE_NACK 0xb1
 #define ALIVE_REJ 0xb2
 
+#define SEND_DATA 0xc0
+#define DATA_ACK 0xc1
+#define DATA_NACK 0xc2
+#define DATA_REJ 0xc3
+#define SET_DATA 0xc4
+#define GET_DATA 0xc5
 
 /* States */
 #define DISCONNECTED 0xf0
@@ -47,6 +53,8 @@ bool end_register_phase = false;
 #define SEND_ALIVE 0xf6
 
 
+//STDIN FOR TERMINAL COMMANDS
+#define STDIN 0
 
 struct Client {
     char id_client[10];
@@ -73,10 +81,22 @@ struct PduUdp {
     char data[61];
 };
 
+
+struct PduTcp {
+    unsigned char packet_type;
+    char id_transmitter[11];
+    char id_communication[11];
+    char element[8];
+    char value[16];
+    char info[80];
+};
+
+
 struct register_arg_struct {
     int sock;
     struct sockaddr_in serveraddr;
 } args;
+
 
 struct alive_arg_struct {
     int sock;
@@ -709,6 +729,7 @@ void* handleAlive(void* argp) {
     while(client.state == SEND_ALIVE) {
         FD_SET(sock_udp, &rset);
         FD_SET(sock_tcp, &rset);
+        FD_SET(STDIN, &rset);
 
         select(maxsock, &rset, NULL, NULL, &timeout);
 
@@ -766,6 +787,13 @@ void* handleAlive(void* argp) {
             bytes_received = recvfrom(sock_udp, buffer, sizeof(buffer), 0, (struct sockaddr*)&serveraddr, &len);
             printf("Bytes rebuts: %ld\n", bytes_received);
             //FALTA FER PDU TCP
+        }
+
+        //LLEGIR TERMINAL
+        if (FD_ISSET(STDIN, &rset)) {
+            fgets(buffer, sizeof(buffer), stdin);
+            printf("READED: %s\n", buffer);
+            //FALTA TRACTAR COMANDES
         }
 
 
@@ -835,8 +863,6 @@ void setup() {
     }
     sprintf(message, "Superat el nombre de processos de subscripció (%d)", register_number - 1);
     printInfo(message);
-
-
 
     free(message);
     exit(1);
