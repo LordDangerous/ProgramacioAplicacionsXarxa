@@ -143,6 +143,8 @@ void* handleAlive(void* argp);
 void* sendAlives(void* argAlive);
 void handleCommands(char* buffer);
 void removeNewLine(char* s);
+void handleSetGet(int sock_tcp, struct sockaddr_in tcpaddr, char* buffer);
+char* getHour();
 
 
 
@@ -269,7 +271,9 @@ void readFile() {
                 element = strtok(value, ";");
                 printInfo("Assignats elements: ");
                 while (element != NULL) {
-                    strcpy(client.elements[i].element, element);
+                    printf("%ld\n", sizeof(element));
+                    strncpy(client.elements[i].element, element, 7);
+                    client.elements[i].element[7] = '\0';
                     strcpy(client.elements[i].value, "NONE");
                     sprintf(message, "%s\t%s", client.elements[i].element, client.elements[i].value);
                     printInfo(message);
@@ -277,6 +281,31 @@ void readFile() {
                     i++;
                 }
                 client.num_elements = i;
+                
+                // int j = 0;
+                // int k = 0;
+                // printf("%ld\n", strlen(value));
+                // for (int i = 0; i < strlen(value); i++) {
+                //     client.elements[j].element[k] = value[i];
+                //     if(value[i] != ';') {
+                //         client.elements[j].element[k] = value[i];
+                //     }
+                //     else {
+                //         //client.elements[j].element[k] = '\0';
+                //         printf("%s\n", client.elements[j].element);
+                //         k = 0;
+                //         j++;
+                //         printf("%d%d\n", k, j);
+                //     }
+                //     k++;
+                // }
+
+                // for(int i = 0; i < strlen(value) / 7; i++) {
+                //     strncpy(client.elements[i].element, &value[i*8], 7);
+                //     client.elements[i].element[7] = '\0';
+                // }
+
+                
             }
             else {
                 printInfo("No es poden obtenir els elements del client de l'arxiu de configuració");
@@ -450,7 +479,7 @@ void handleUdpPacket(char* data_received) {
         char semicolon[1] = ";";
         sprintf(data, "%d,", client.tcp_port);
         for (int i = 0; i < client.num_elements; i++) {
-            strcat(data, client.elements[i].element);
+            strncat(data, client.elements[i].element, sizeof(client.elements[i].element));
             if (i < client.num_elements - 1) {
                 strcat(data, semicolon);
             }
@@ -767,6 +796,7 @@ void* handleAlive(void* argp) {
 
     ssize_t bytes_received;
     socklen_t len;
+    time_t actual_time, time_alive;
     char buffer[84];
     char buffer_tcp[127];
     FD_ZERO(&rset);
@@ -785,6 +815,7 @@ void* handleAlive(void* argp) {
                     if (strncmp(client.id_client, pdu_received.data, sizeof(client.id_client)) == 0){
                         if (client.state == REGISTERED) {
                             client.state = SEND_ALIVE;
+                            time_alive = time(NULL);
                         }
                     }
                     else {
@@ -850,10 +881,9 @@ void* handleAlive(void* argp) {
 
     FD_ZERO(&rset);
     timeout.tv_sec = 0;
+    timeout.tv_usec = 0;
 
     maxsock = max(sock_udp, sock_tcp) + 1;
-
-    time_t actual_time, time_alive;
 
     while(client.state == SEND_ALIVE) {
         FD_SET(sock_udp, &rset);
@@ -915,13 +945,15 @@ void* handleAlive(void* argp) {
         if (FD_ISSET(sock_tcp, &rset)) {
             len = sizeof(tcpaddr);
             conn_tcp = accept(sock_tcp, (struct sockaddr*)&tcpaddr, &len);
-            read(conn_tcp, buffer_tcp, sizeof(buffer_tcp));
+            bytes_received = read(conn_tcp, buffer_tcp, sizeof(buffer_tcp));
+            printf("%s\n", buffer_tcp);
+            handleSetGet(sock_tcp, tcpaddr, buffer_tcp);
+
         }
 
         //LLEGIR TERMINAL
         if (FD_ISSET(STDIN, &rset)) {
             fgets(buffer, sizeof(buffer), stdin);
-            //FALTA TRACTAR COMANDES
             handleCommands(buffer);
         }
 
@@ -945,6 +977,102 @@ void* handleAlive(void* argp) {
     free(message);
     pthread_exit(NULL);
     return NULL;
+}
+
+
+void handleSetGet(int sock_tcp, struct sockaddr_in tcpaddr, char* buffer) {
+    char* message = malloc(sizeof(char)*1000);
+    struct PduTcp pdu_received = unpackPduTcp(buffer);
+    int bytes_sent;
+    struct PduTcp pdu;
+    if (strcmp(server.id_server, pdu_received.id_transmitter) == 0) {
+        if (strcmp(server.id_communication, pdu_received.id_communication) == 0) {
+            if (strcmp(pdu_received.info, client.id_client) == 0) {
+                bool found = false;
+                for (int i = 0; i < client.num_elements; i++) {
+                    if(strcmp(pdu_received.element, client.elements[i].element) == 0) {
+                        found = true;
+                        char* info = getHour();
+                        
+                        if (pdu_received.packet_type == SET_DATA && pdu_received.element[7] == 'I') {
+                            strcpy(client.elements[i].value, pdu_received.value);
+                            
+                            pdu = packPduTcp(DATA_ACK, pdu_received.id_transmitter, pdu_received.id_communication, pdu_received.element, pdu_received.value, info);
+                            bytes_sent = write(sock_tcp, &pdu, sizeof(pdu));
+                            
+                            sprintf(message, "Enviat -> bytes: %d  paquet: %x  id transmissor: %s  id comunicació: %s  element: %s  valor: %s  info: %s", bytes_sent, pdu.packet_type, pdu.id_transmitter, pdu.id_communication, pdu.element, pdu.value, pdu.info);
+                            printDebug(message);
+                        }
+                        else if (pdu_received.packet_type == GET_DATA) {
+                            pdu = packPduTcp(DATA_ACK, pdu_received.id_transmitter, pdu_received.id_communication, pdu_received.element, client.elements[i].value, info);
+                            bytes_sent = write(sock_tcp, &pdu, sizeof(pdu));
+                            
+                            sprintf(message, "Enviat -> bytes: %d  paquet: %x  id transmissor: %s  id comunicació: %s  element: %s  valor: %s  info: %s", bytes_sent, pdu.packet_type, pdu.id_transmitter, pdu.id_communication, pdu.element, pdu.value, pdu.info);
+                            printDebug(message);
+                        }
+                    }
+                }
+                if (!found) {
+                    sprintf(message, "Element: [%s] no pertany al dispositiu", pdu_received.element);
+                    printInfo(message);
+                    pdu = packPduTcp(DATA_REJ, client.id_client, server.id_communication, pdu_received.element, pdu_received.value, "Element incorrecte");
+                    bytes_sent = write(sock_tcp, &pdu, sizeof(pdu));
+                    sprintf(message, "Enviat -> bytes: %d  paquet: %x  id transmissor: %s  id comunicació: %s  element: %s  valor: %s  info: %s", bytes_sent, pdu.packet_type, pdu.id_transmitter, pdu.id_communication, pdu.element, pdu.value, pdu.info);
+                    printDebug(message);
+                }
+            }
+            else {
+                sprintf(message, "Error en el valor del camp info (rebut: %s, esperat: %s)", pdu_received.info, client.id_client);
+                printDebug(message);
+                pdu = packPduTcp(DATA_REJ, client.id_client, server.id_communication, pdu_received.element, pdu_received.value, "Camp info incorrecte");
+                bytes_sent = write(sock_tcp, &pdu, sizeof(pdu));
+                sprintf(message, "Enviat -> bytes: %d  paquet: %x  id transmissor: %s  id comunicació: %s  element: %s  valor: %s  info: %s", bytes_sent, pdu.packet_type, pdu.id_transmitter, pdu.id_communication, pdu.element, pdu.value, pdu.info);
+                printDebug(message);
+                client.state = NOT_REGISTERED;
+                printClientState();
+            }
+        }
+        else {
+            sprintf(message, "Error en el valor del camp id. com. (rebut: %s, esperat: %s)", pdu_received.id_communication, server.id_communication);
+            printDebug(message);
+            pdu = packPduTcp(DATA_REJ, client.id_client, server.id_communication, pdu_received.element, pdu_received.value, "Id. comunicació incorrecte");
+            bytes_sent = write(sock_tcp, &pdu, sizeof(pdu));
+            sprintf(message, "Enviat -> bytes: %d  paquet: %x  id transmissor: %s  id comunicació: %s  element: %s  valor: %s  info: %s", bytes_sent, pdu.packet_type, pdu.id_transmitter, pdu.id_communication, pdu.element, pdu.value, pdu.info);
+            printDebug(message);
+            client.state = NOT_REGISTERED;
+            printClientState();
+        }    
+    } 
+    else {
+        sprintf(message, "Error en les dades d'identificació del servidor (rebut ip: %d, id: %s)", tcpaddr.sin_port, pdu_received.id_transmitter);
+        printDebug(message);
+        pdu = packPduTcp(DATA_REJ, client.id_client, server.id_communication, pdu_received.element, pdu_received.value, "Id. transmitter incorrecte");
+        bytes_sent = write(sock_tcp, &pdu, sizeof(pdu));
+        
+        sprintf(message, "Enviat -> bytes: %d  paquet: %x  id transmissor: %s  id comunicació: %s  element: %s  valor: %s  info: %s", bytes_sent, pdu.packet_type, pdu.id_transmitter, pdu.id_communication, pdu.element, pdu.value, pdu.info);
+        printDebug(message);
+        client.state = NOT_REGISTERED;
+        printClientState();
+    }
+}
+
+
+char* getHour() {
+    int year, month, day, hours, minutes, seconds;
+    time_t now;
+    time(&now);
+    struct tm *local = localtime(&now);
+    static char info[80];
+
+    year = 1900 + local->tm_year;
+    month = local->tm_mon;
+    day = local->tm_mday;
+    hours = local->tm_hour;
+    minutes = local->tm_min;
+    seconds = local->tm_sec;
+
+    sprintf(info, "%d-%02d-%d;%02d:%02d:%02d", year, month, day, hours, minutes, seconds);
+    return info;
 }
 
 
@@ -1038,23 +1166,11 @@ void handleCommands(char* buffer) {
             sprintf(message, "Iniciada comunicació TCP amb el servidor (port: %d)", server.tcp_port);
             printInfo(message);
 
-            int year, month, day, hours, minutes, seconds, bytes_sent;
-            time_t now;
-            time(&now);
-            struct tm *local = localtime(&now);
-            char info[80];
+            
 
-            year = 1900 + local->tm_year;
-            month = local->tm_mon;
-            // if (month < 10) {
-            //     month = 
-            // }
-            day = local->tm_mday;
-            hours = local->tm_hour;
-            minutes = local->tm_min;
-            seconds = local->tm_sec;
-
-            sprintf(info, "%d-%02d-%d;%02d:%02d:%02d", year, month, day, hours, minutes, seconds);
+            char* info;
+            info = getHour();
+            int bytes_sent;
 
             struct PduTcp pdu;
             pdu = packPduTcp(SEND_DATA, client.id_client, server.id_communication, id_element, value, info);
@@ -1090,7 +1206,8 @@ void handleCommands(char* buffer) {
                         if (pdu_received.packet_type == DATA_ACK) {
                             if (strcmp(id_element, pdu_received.element) == 0) {
                                 if (strcmp(pdu_received.info, client.id_client) == 0) {
-                                    sprintf("Acceptat l'enviament de dades (element: %s, valor: %s). Info: %s", id_element, value, pdu_received.info);
+                                    sprintf(message, "Acceptat l'enviament de dades (element: %s, valor: %s). Info: %s", id_element, value, pdu_received.info);
+                                    printInfo(message);
                                 }
                                 else {
                                     sprintf(message, "Error en el valor del camp info (rebut: %s, esperat: %s)", pdu_received.info, client.id_client);
