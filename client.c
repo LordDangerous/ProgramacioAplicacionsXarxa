@@ -5,23 +5,24 @@
 #include <string.h>
 #include <strings.h>
 #include <time.h>
-
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
 #include <netdb.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
-
 #include <pthread.h>
-
 #include <sys/select.h>
 #include <sys/types.h>
 #include <unistd.h>
 
+/* Definim una variable global que conté inicialment el nom de l'arxiu per defecte "client.cfg", el nombre de procediments de registre, 
+un booleà que ens ajudarà a saber si hem d'acabar el registre o fer un nou procés de registre i un altre booleà per saber si s'ha
+especificat l'opció "-d" al executar el client */
 char clientFile[] = "client.cfg";
 int register_number = 1;
 bool end_register_phase = false;
+bool debug_mode = false;
 
 /* Packet type */
 #define REG_REQ 0xa0
@@ -54,7 +55,7 @@ bool end_register_phase = false;
 #define SEND_ALIVE 0xf6
 
 
-//STDIN FOR TERMINAL COMMANDS
+//STDIN per les comandes de terminal
 #define STDIN 0
 
 
@@ -114,7 +115,7 @@ struct alive_arg_struct {
 } argAlive;
 
 
-/* Temps registre */
+/* Constants de temps */
 #define t 1
 #define u 2
 #define n 8
@@ -145,9 +146,10 @@ void handleCommands(char* buffer);
 void removeNewLine(char* s);
 void handleSetGet(int conn_tcp, struct sockaddr_in tcpaddr, char* buffer);
 char* getHour();
+void parseArgs(int argc, char* argv[]);
 
 
-
+//Funció auxiliar per borrar espais (si n'hi ha) a un array de chars
 void removeSpaces(char* s) {
     char* d = s;
     do {
@@ -157,6 +159,7 @@ void removeSpaces(char* s) {
     } while ((*s++ = *d++));
 }
 
+//Funció auxiliar per calcular el màxim entre dos enters
 int max (int x, int y) {
     if (x > y)
         return x;
@@ -195,16 +198,19 @@ void printClientState() {
 }
 
 
+//Funció per printejar els missatges de debug (si l'opció "-d" ha estat introduïda) per la terminal
 void printDebug(char* message) {
-    int hours, minutes, seconds;
-    time_t now;
-    time(&now);
-    struct tm *local = localtime(&now);
+    if (debug_mode) {
+        int hours, minutes, seconds;
+        time_t now;
+        time(&now);
+        struct tm *local = localtime(&now);
 
-    hours = local->tm_hour;
-    minutes = local->tm_min;
-    seconds = local->tm_sec;
-    printf("%02d:%02d:%02d - DEBUG => %s\n", hours, minutes, seconds, message);
+        hours = local->tm_hour;
+        minutes = local->tm_min;
+        seconds = local->tm_sec;
+        printf("%02d:%02d:%02d - DEBUG => %s\n", hours, minutes, seconds, message);
+    }
 }
 
 
@@ -243,8 +249,9 @@ void readFile() {
     int lineNumber = 0;
     char delimiter[2] = "=";
     fp = fopen(clientFile, "r");
-    if (ferror(fp)) {
-        printError("No es pot obrir l'arxiu de configuració");
+    if (fp == NULL) {
+        sprintf(message, "No es pot obrir l'arxiu de configuració: %s", clientFile);
+        printError(message);
         exit(1);
     }
     while (fgets(line, sizeof(line), fp) != NULL) {
@@ -1252,6 +1259,27 @@ void handleCommands(char* buffer) {
 }
 
 
+void parseArgs(int argc, char* argv[]) {
+    for (int i = 1; i < argc; i++) {
+        printf("%s\n", argv[i]);
+        if (strcmp(argv[i], "-d") == 0) {
+            debug_mode = true;
+        }
+        else if (strcmp(argv[i], "-u") == 0) {
+            if (argv[i+1]) {
+                printf("%s\n", argv[i+1]);
+                strcpy(clientFile, argv[i+1]);
+            }
+            else {
+                printError("Arxiu de configuració no especificat");
+                exit(1);
+            }
+        }
+    }
+}
+
+
+
 void setup() {
     char* message = malloc(sizeof(char)*1000);
     int sock_udp;
@@ -1288,9 +1316,10 @@ void setup() {
             if (pthread_create(&thread_ALIVE, NULL, &handleAlive, (void *)&args) != 0) {
                 printf("ERROR creating thread");
             }
+            pthread_join(thread_ALIVE, NULL);
         }
         
-        pthread_join(thread_ALIVE, NULL);
+        
         register_number += 1;
     }
     sprintf(message, "Superat el nombre de processos de subscripció (%d)", register_number - 1);
@@ -1302,7 +1331,8 @@ void setup() {
 
 
 
-int main() {
+int main(int argc, char* argv[]) {
+    parseArgs(argc, argv);
     readFile();
     printInfo("READED FILE");
     setup();

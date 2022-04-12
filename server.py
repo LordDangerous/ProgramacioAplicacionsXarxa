@@ -66,31 +66,27 @@ class PduTcp:
 
 def parse_args():
     args = sys.argv[1:]
-    if len(args) > 0:
-        if args[0] == "-d":
-            level = logging.DEBUG
-            logger = logging.getLogger()
-            logger.setLevel(level)
-            logging.debug("DEBUG")
-            logging.info("INFO")
-            logging.error("ERROR")
-        elif args[0] == "-c":
-            if len(args) >= 2:
-                global server_file
-                server_file = args[1]
-            else:
-                logging.error("Falta especificar l'arxiu")
-                exit()
-        elif args[0] == "-u":
-            if len(args) >= 2:
-                global database_file
-                database_file = args[1]
-            else:
-                logging.error("Falta especificar l'arxiu")
-                exit()
-        else:
-            logging.error("Opció incorrecta. Ús: -d debug / -c <arxiu> / -u <arxiu>")
-            exit()
+    length = len(args)
+    if length > 0:
+        for i in range(length):
+            if args[i] == "-d":
+                level = logging.DEBUG
+                logger = logging.getLogger()
+                logger.setLevel(level)
+            elif args[i] == "-c":
+                if length > i + 1:
+                    global server_file
+                    server_file = args[i+1]
+                else:
+                    logging.error(f"Arxiu de configuració no especificat")
+                    exit()
+            elif args[i] == "-u":
+                if length > i + 1:
+                    global database_file
+                    database_file = args[i+1]
+                else:
+                    logging.error("Base de dades de dispositius no especificada")
+                    exit()
 
 
 def read_file():
@@ -119,7 +115,7 @@ def read_database():
     try:
         f = open(database_file, "r")
     except IOError:
-        logging.info(f"No es pot obrir l'arxiu de configuració: {server_file}")
+        logging.info(f"No es pot obrir la base de dades de dispositius: {database_file}")
         exit()
     read = f.read()
     clients = []
