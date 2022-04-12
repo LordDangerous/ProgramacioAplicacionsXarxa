@@ -17,13 +17,16 @@
 #include <unistd.h>
 
 /* Definim una variable global que conté inicialment el nom de l'arxiu per defecte "client.cfg", el nombre de procediments de registre, 
-un booleà que ens ajudarà a saber si hem d'acabar el registre o fer un nou procés de registre i un altre booleà per saber si s'ha
-especificat l'opció "-d" al executar el client */
+un booleà que ens ajudarà a saber si hem d'acabar el registre o fer un nou procés de registre, un altre booleà per saber si s'ha
+especificat l'opció "-d" al executar el client, un time_alive per controlar el nombre de paquets ALIVE consecutius i un booleà
+quit per saber si s'ha introduït la comanda per terminal i fer el pertinent*/
 char clientFile[] = "client.cfg";
 int register_number = 1;
 bool end_register_phase = false;
 bool debug_mode = false;
 bool debug_mode_2 = false;
+time_t time_alive;
+bool quit = false;
 
 /* Packet type */
 #define REG_REQ 0xa0
@@ -127,6 +130,18 @@ struct handle_udp_struct {
 } argHandleUdp;
 
 
+struct handle_set_get_struct {
+    int sock_tcp;
+    struct sockaddr_in tcpaddr;
+} argHandleSetGet;
+
+
+struct handle_continuous_alive_struct {
+    int sock_udp;
+    struct sockaddr_in serveraddr;
+} argHandleContinuousAlive;
+
+
 /* Constants de temps */
 #define t 1
 #define u 2
@@ -152,9 +167,10 @@ struct PduTcp unpackPduTcp(char* data, ssize_t bytes_received);
 void* registerPhase(void* argp);
 void* handleAlive(void* argp);
 void* sendAlives(void* argAlive);
-void handleCommands(char* buffer);
+void* handleCommands(void* unused);
 void removeNewLine(char* s);
-void handleSetGet(int conn_tcp, struct sockaddr_in tcpaddr, char* buffer, ssize_t bytes_received);
+void* handleSetGet(void* argHandleSetGet);
+void* handleContinuousAlive(void* argHandleContinuousAlive);
 char* getHour();
 void parseArgs(int argc, char* argv[]);
 char* packetTypeConverter(int packet_type);
@@ -620,7 +636,6 @@ void* handleUdpPacket(void* argHandleUdp) {
                                         server.tcp_port = atoi(pdu_received.data);
                                         //END REGISTER
                                         end_register_phase = true;
-                                        pthread_exit(NULL);
                                         return NULL;
                                     }
                                     else if (pdu_received.packet_type == INFO_NACK) {
@@ -629,7 +644,6 @@ void* handleUdpPacket(void* argHandleUdp) {
                                         client.state = NOT_REGISTERED;
                                         printClientState();
                                         //CONTINUAR REGISTRE
-                                        pthread_exit(NULL);
                                         return NULL;
                                     }
                                     else {
@@ -718,7 +732,6 @@ void* handleUdpPacket(void* argHandleUdp) {
         end_register_phase = true;
     }
     free(message);
-    pthread_exit(NULL);
     return NULL;
 }
 
@@ -748,8 +761,8 @@ void* registerPhase(void* argp) {
     sendUdp(sock, serveraddr, pdu);
     packets_sent += 1;
     sprintf(message, "Num total paquets enviats: %d", packets_sent);
-    printTerminal(message, DEBUG);
-    printTerminal("Paquet 1 REG_REQ enviat", DEBUG);
+    printTerminal(message, DEBUG2);
+    printTerminal("Paquet 1 REG_REQ enviat", DEBUG2);
 
     client.state = WAIT_ACK_REG;
     printClientState();
@@ -764,7 +777,6 @@ void* registerPhase(void* argp) {
     fd_set rset;
     
     int maxsock = sock + 1;
-    int input;
 
     ssize_t bytes_received;
     socklen_t len;
@@ -775,7 +787,7 @@ void* registerPhase(void* argp) {
         
         FD_SET(sock, &rset);
 
-        input = select(maxsock, &rset, NULL, NULL, &timeout);
+        select(maxsock, &rset, NULL, NULL, &timeout);
 
         if (FD_ISSET(sock, &rset)) {
             len = sizeof(serveraddr);
@@ -791,7 +803,8 @@ void* registerPhase(void* argp) {
             if (end_register_phase) {
                 //Acabar el registre ja sigui perquè el dispositiu passa a REGISTERED o per iniciar un nou procés de registre
                 end_register_phase = false;
-                pthread_exit(NULL);
+                printTerminal("Esperant 2 s", DEBUG2);
+                sleep(u);
                 return NULL;
             }
             else {
@@ -830,10 +843,9 @@ void* registerPhase(void* argp) {
             break;
         }
     }
-    printTerminal("Esperant 2 s", DEBUG);
+    printTerminal("Esperant 2 s", DEBUG2);
     sleep(u);
     free(message);
-    pthread_exit(NULL);
     return NULL;
 }
 
@@ -893,7 +905,6 @@ void* sendAlives(void* argAlive) {
     }
     
     free(message);
-    pthread_exit(NULL);
     return NULL;
 }
 
@@ -935,9 +946,8 @@ void* handleAlive(void* argp) {
 
     ssize_t bytes_received;
     socklen_t len;
-    time_t actual_time, time_alive;
+    time_t actual_time;
     char buffer[84];
-    char buffer_tcp[127];
     FD_ZERO(&rset);
     FD_SET(sock_udp, &rset);
 
@@ -963,7 +973,6 @@ void* handleAlive(void* argp) {
                         printTerminal(message, DEBUG);
                         client.state = NOT_REGISTERED;
                         printClientState();
-                        pthread_exit(NULL);
                         return NULL;
                     }
                 }
@@ -972,7 +981,6 @@ void* handleAlive(void* argp) {
                     printTerminal(message, DEBUG);
                     client.state = NOT_REGISTERED;
                     printClientState();
-                    pthread_exit(NULL);
                     return NULL;
                 }    
             } 
@@ -981,7 +989,6 @@ void* handleAlive(void* argp) {
                 printTerminal(message, DEBUG);
                 client.state = NOT_REGISTERED;
                 printClientState();
-                pthread_exit(NULL);
                 return NULL;
             }
         }
@@ -989,7 +996,6 @@ void* handleAlive(void* argp) {
             printTerminal("Rebut paquet ALIVE_REJ", DEBUG);
             client.state = NOT_REGISTERED;
             printClientState();
-            pthread_exit(NULL);
             return NULL;
         }
     }
@@ -1002,12 +1008,11 @@ void* handleAlive(void* argp) {
         printTerminal(message, DEBUG);
         client.state = NOT_REGISTERED;
         printClientState();
-        pthread_exit(NULL);
         return NULL;
     }
 
     
-    int sock_tcp, conn_tcp;
+    int sock_tcp;
     sock_tcp = socket(AF_INET, SOCK_STREAM, 0);
     struct sockaddr_in tcpaddr;
 
@@ -1034,65 +1039,76 @@ void* handleAlive(void* argp) {
 
         select(maxsock, &rset, NULL, NULL, &timeout);
 
-        //UDP
+        //Rebut quelcom pel socket udp
         if (FD_ISSET(sock_udp, &rset)) {
-            len = sizeof(serveraddr);
-            bytes_received = recvfrom(sock_udp, buffer, sizeof(buffer), 0, (struct sockaddr*)&serveraddr, &len);
-            struct PduUdp pdu_received = unpackPduUdp(buffer, bytes_received);
-            if (pdu_received.packet_type == ALIVE) {
-                if (strcmp(server.id_server, pdu_received.id_transmitter) == 0) {
-                    if (strcmp(server.id_communication, pdu_received.id_communication) == 0){
-                        if (strncmp(client.id_client, pdu_received.data, sizeof(client.id_client)) == 0){
-                            //Reiniciar temps ALIVE (per als 3 consecutius)
-                            time_alive = time(NULL);
-                        }
-                        else {
-                            sprintf(message, "Error en el valor del camp dades (rebut: %s, esperat: %s)", pdu_received.data, client.id_client);
-                            printTerminal(message, DEBUG);
-                            client.state = NOT_REGISTERED;
-                            printClientState();
-                            pthread_exit(NULL);
-                            return NULL;
-                        }
-                    }
-                    else {
-                        sprintf(message, "Error en el valor del camp id. com. (rebut: %s, esperat: %s)", pdu_received.id_communication, server.id_communication);
-                        printTerminal(message, DEBUG);
-                        client.state = NOT_REGISTERED;
-                        printClientState();
-                        pthread_exit(NULL);
-                        return NULL;
-                    }    
-                } 
-                else {
-                    sprintf(message, "Error en les dades d'identificació del servidor (rebut ip: %d, id: %s)", serveraddr.sin_port, pdu_received.id_transmitter);
-                    printTerminal(message, DEBUG);
-                    client.state = NOT_REGISTERED;
-                    printClientState();
-                    pthread_exit(NULL);
-                    return NULL;
-                }
+            // len = sizeof(serveraddr);
+            // bytes_received = recvfrom(sock_udp, buffer, sizeof(buffer), 0, (struct sockaddr*)&serveraddr, &len);
+            pthread_t thread_CONTINUOUSALIVE;
+            argHandleContinuousAlive.sock_udp = sock_udp;
+            argHandleContinuousAlive.serveraddr = serveraddr;
+            if (pthread_create(&thread_CONTINUOUSALIVE, NULL, &handleContinuousAlive, (void*)&argHandleContinuousAlive) != 0) {
+                printTerminal("ERROR en la creació del procés handleSetGet", ERROR);
             }
-            else if (pdu_received.packet_type == ALIVE_REJ) {
-                printTerminal("Rebut paquet ALIVE_REJ", DEBUG);
-                client.state = NOT_REGISTERED;
-                printClientState();
-                break;
-            }
+            // struct PduUdp pdu_received = unpackPduUdp(buffer, bytes_received);
+            // if (pdu_received.packet_type == ALIVE) {
+            //     if (strcmp(server.id_server, pdu_received.id_transmitter) == 0) {
+            //         if (strcmp(server.id_communication, pdu_received.id_communication) == 0){
+            //             if (strncmp(client.id_client, pdu_received.data, sizeof(client.id_client)) == 0){
+            //                 //Reiniciar temps ALIVE (per als 3 consecutius)
+            //                 time_alive = time(NULL);
+            //             }
+            //             else {
+            //                 sprintf(message, "Error en el valor del camp dades (rebut: %s, esperat: %s)", pdu_received.data, client.id_client);
+            //                 printTerminal(message, DEBUG);
+            //                 client.state = NOT_REGISTERED;
+            //                 printClientState();
+            //                 return NULL;
+            //             }
+            //         }
+            //         else {
+            //             sprintf(message, "Error en el valor del camp id. com. (rebut: %s, esperat: %s)", pdu_received.id_communication, server.id_communication);
+            //             printTerminal(message, DEBUG);
+            //             client.state = NOT_REGISTERED;
+            //             printClientState();
+            //             return NULL;
+            //         }    
+            //     } 
+            //     else {
+            //         sprintf(message, "Error en les dades d'identificació del servidor (rebut ip: %d, id: %s)", serveraddr.sin_port, pdu_received.id_transmitter);
+            //         printTerminal(message, DEBUG);
+            //         client.state = NOT_REGISTERED;
+            //         printClientState();
+            //         return NULL;
+            //     }
+            // }
+            // else if (pdu_received.packet_type == ALIVE_REJ) {
+            //     printTerminal("Rebut paquet ALIVE_REJ", DEBUG);
+            //     client.state = NOT_REGISTERED;
+            //     printClientState();
+            //     break;
+            // }
         }
 
-        //TCP
+        //Rebut quelcom pel socket tcp
         if (FD_ISSET(sock_tcp, &rset)) {
-            len = sizeof(tcpaddr);
-            conn_tcp = accept(sock_tcp, (struct sockaddr*)&tcpaddr, &len);
-            bytes_received = read(conn_tcp, buffer_tcp, sizeof(buffer_tcp));
-            handleSetGet(conn_tcp, tcpaddr, buffer_tcp, bytes_received);
+            pthread_t thread_HANDLESETGET;
+            argHandleSetGet.sock_tcp = sock_tcp;
+            argHandleSetGet.tcpaddr = tcpaddr;
+            // len = sizeof(tcpaddr);
+            // conn_tcp = accept(sock_tcp, (struct sockaddr*)&tcpaddr, &len);
+            // bytes_received = read(conn_tcp, buffer_tcp, sizeof(buffer_tcp));
+            // handleSetGet(conn_tcp, tcpaddr, buffer_tcp, bytes_received);
+            if (pthread_create(&thread_HANDLESETGET, NULL, &handleSetGet, (void*)&argHandleSetGet) != 0) {
+                printTerminal("ERROR en la creació del procés handleSetGet", ERROR);
+            }
         }
 
-        //LLEGIR TERMINAL
+        //Rebut quelcom per terminal
         if (FD_ISSET(STDIN, &rset)) {
-            fgets(buffer, sizeof(buffer), stdin);
-            handleCommands(buffer);
+            pthread_t thread_HANDLECOMMANDS;
+            if (pthread_create(&thread_HANDLECOMMANDS, NULL, &handleCommands, NULL) != 0) {
+                printTerminal("ERROR en la creació del procés handleCommands", ERROR);
+            }
         }
 
 
@@ -1104,6 +1120,10 @@ void* handleAlive(void* argp) {
             printClientState();
             printTerminal("S'ha perdut la connexió amb el servidor al no rebre 3 ALIVE consecutius", MSG);
         }
+        //Si s'ha introduït la comanda quit el valor de la variable global passa a true i sortim del bucle
+        if (quit) {
+            break;
+        }
     }
 
     close(sock_tcp);
@@ -1113,15 +1133,86 @@ void* handleAlive(void* argp) {
     sprintf(message, "Finalitzat procés %ld", pthread_self());
     printTerminal(message, DEBUG);
 
+    //Addicionalment, si la comanda quit ha estat introduïda, aturem el programa
+    if (quit) {
+        exit(1);
+    }
+
     free(message);
-    pthread_exit(NULL);
     return NULL;
 }
 
 
-void handleSetGet(int conn_tcp, struct sockaddr_in tcpaddr, char* buffer, ssize_t bytes_received) {
+void* handleContinuousAlive(void* argHandleContinuousAlive) {
     char* message = malloc(sizeof(char)*1000);
-    struct PduTcp pdu_received = unpackPduTcp(buffer, bytes_received);
+    struct handle_continuous_alive_struct *args = argHandleContinuousAlive;
+    int sock_udp = args->sock_udp;
+    struct sockaddr_in serveraddr = args->serveraddr;
+    socklen_t len;
+    ssize_t bytes_received;
+    char buffer[84];
+    
+    len = sizeof(serveraddr);
+    bytes_received = recvfrom(sock_udp, buffer, sizeof(buffer), 0, (struct sockaddr*)&serveraddr, &len);
+    struct PduUdp pdu_received = unpackPduUdp(buffer, bytes_received);
+    if (pdu_received.packet_type == ALIVE) {
+        if (strcmp(server.id_server, pdu_received.id_transmitter) == 0) {
+            if (strcmp(server.id_communication, pdu_received.id_communication) == 0){
+                if (strncmp(client.id_client, pdu_received.data, sizeof(client.id_client)) == 0){
+                    //Reiniciar temps ALIVE (per als 3 consecutius)
+                    time_alive = time(NULL);
+                }
+                else {
+                    sprintf(message, "Error en el valor del camp dades (rebut: %s, esperat: %s)", pdu_received.data, client.id_client);
+                    printTerminal(message, DEBUG);
+                    client.state = NOT_REGISTERED;
+                    printClientState();
+                    return NULL;
+                }
+            }
+            else {
+                sprintf(message, "Error en el valor del camp id. com. (rebut: %s, esperat: %s)", pdu_received.id_communication, server.id_communication);
+                printTerminal(message, DEBUG);
+                client.state = NOT_REGISTERED;
+                printClientState();
+                return NULL;
+            }    
+        } 
+        else {
+            sprintf(message, "Error en les dades d'identificació del servidor (rebut ip: %d, id: %s)", serveraddr.sin_port, pdu_received.id_transmitter);
+            printTerminal(message, DEBUG);
+            client.state = NOT_REGISTERED;
+            printClientState();
+            return NULL;
+        }
+    }
+    else if (pdu_received.packet_type == ALIVE_REJ) {
+        printTerminal("Rebut paquet ALIVE_REJ", DEBUG);
+        client.state = NOT_REGISTERED;
+        printClientState();
+    }
+
+
+    free(message);
+    return NULL;
+}
+
+
+void* handleSetGet(void* argHandleSetGet) {
+    struct handle_set_get_struct *args = argHandleSetGet;
+    int sock_tcp = args->sock_tcp;
+    struct sockaddr_in tcpaddr = args->tcpaddr;
+
+    int conn_tcp;
+    socklen_t len;
+    ssize_t bytes_received;
+    char buffer_tcp[127];
+
+    len = sizeof(tcpaddr);
+    conn_tcp = accept(sock_tcp, (struct sockaddr*)&tcpaddr, &len);
+    bytes_received = read(conn_tcp, buffer_tcp, sizeof(buffer_tcp));
+    char* message = malloc(sizeof(char)*1000);
+    struct PduTcp pdu_received = unpackPduTcp(buffer_tcp, bytes_received);
     struct PduTcp pdu;
     if (strcmp(server.id_server, pdu_received.id_transmitter) == 0) {
         if (strcmp(server.id_communication, pdu_received.id_communication) == 0) {
@@ -1193,6 +1284,7 @@ void handleSetGet(int conn_tcp, struct sockaddr_in tcpaddr, char* buffer, ssize_
         client.state = NOT_REGISTERED;
         printClientState();
     }
+    return NULL;
 }
 
 
@@ -1223,7 +1315,9 @@ void removeNewLine(char* s) {
 
 
 
-void handleCommands(char* buffer) {
+void* handleCommands(void* unused) {
+    char buffer[80];
+    fgets(buffer, sizeof(buffer), stdin);
     char* message = malloc(sizeof(char)*1000);
     removeNewLine(buffer);
     char delimiter[] = " ";
@@ -1279,12 +1373,12 @@ void handleCommands(char* buffer) {
                 if (!found) {
                     sprintf(message, "Element: [%s] no pertany al dispositiu", id_element);
                     printTerminal(message, DEBUG);
-                    return;
+                    return NULL;
                 } 
             }
             else {
                 printTerminal("Error de sintàxi. (send <element>)", MSG);
-                return;
+                return NULL;
             }
 
 
@@ -1302,7 +1396,7 @@ void handleCommands(char* buffer) {
 
             if (connect(socktcp, (struct sockaddr*)&tcp_addr, sizeof(tcp_addr)) < 0) {
                 printTerminal("TCP Connect ha fallat", ERROR);
-                return;
+                return NULL;
             }
             sprintf(message, "Iniciada comunicació TCP amb el servidor (port: %d)", server.tcp_port);
             printTerminal(message, MSG);
@@ -1357,15 +1451,14 @@ void handleCommands(char* buffer) {
                             else {
                                 sprintf(message, "Error en el valor del camp element (rebut: %s, esperat: %s)", pdu_received.element, id_element);
                                 printTerminal(message, DEBUG);
-                                client.state = NOT_REGISTERED;
-                                printClientState();
                             }
                         }
                         else if (pdu_received.packet_type == DATA_NACK) {
-                            printTerminal("Rebut DATA NACK", DEBUG);
+                            printTerminal("Rebut DATA NACK", DEBUG2);
+                            printTerminal("Caldria reenviar les dades al servidor", DEBUG);
                         }
                         else if (pdu_received.packet_type == DATA_REJ) {
-                            printTerminal("Rebut DATA_REJ", DEBUG);
+                            printTerminal("Rebut DATA_REJ", DEBUG2);
                             client.state = NOT_REGISTERED;
                             printClientState();
                         }
@@ -1384,6 +1477,10 @@ void handleCommands(char* buffer) {
                     printClientState();
                 }
             }
+            else {
+                printTerminal("Superat m segons sense resposta", DEBUG);
+                printTerminal("Caldria reenviar les dades al servidor", DEBUG);
+            }
 
             close(socktcp);
             sprintf(message, "Finalitzada comunicació TCP amb el servidor (port: %d)", server.tcp_port);
@@ -1392,10 +1489,8 @@ void handleCommands(char* buffer) {
 
         }
         else if (strcasecmp(command, "quit") == 0) {
-            //close(sock_udp);
-            //close(sock_tcp);
             //NEED TO FIX QUIT
-            exit(1);
+            quit = true;
         }
         else {
             sprintf(message, "Commanda incorrecta (%s)", command);
@@ -1403,6 +1498,7 @@ void handleCommands(char* buffer) {
         }
     }
     free(message);
+    return NULL;
 }
 
 
@@ -1471,7 +1567,6 @@ void setup() {
             }
             pthread_join(thread_ALIVE, NULL);
         }
-        
         
         register_number += 1;
     }
