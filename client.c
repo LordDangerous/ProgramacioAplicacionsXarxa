@@ -17,11 +17,12 @@
 #include <unistd.h>
 
 /* Definim una variable global que conté inicialment el nom de l'arxiu per defecte "client.cfg", el nombre de procediments de registre, 
-un booleà que ens ajudarà a saber si hem d'acabar el registre o fer un nou procés de registre, un altre booleà per saber si s'ha
+un booleà que ens ajudarà a saber si hem completad el registre, un altre per fer un nou procés de registre, un altre booleà per saber si s'ha
 especificat l'opció "-d" al executar el client, un time_alive per controlar el nombre de paquets ALIVE consecutius i un booleà
 quit per saber si s'ha introduït la comanda per terminal i fer el pertinent*/
 char clientFile[] = "client.cfg";
 int register_number = 1;
+bool completed_register_phase = false;
 bool end_register_phase = false;
 bool debug_mode = false;
 bool debug_mode_2 = false;
@@ -635,7 +636,7 @@ void* handleUdpPacket(void* argHandleUdp) {
                                         printClientState();
                                         server.tcp_port = atoi(pdu_received.data);
                                         //END REGISTER
-                                        end_register_phase = true;
+                                        completed_register_phase = true;
                                         return NULL;
                                     }
                                     else if (pdu_received.packet_type == INFO_NACK) {
@@ -801,10 +802,15 @@ void* registerPhase(void* argp) {
             }
             pthread_join(thread_HANDLEUDP, NULL);
             if (end_register_phase) {
-                //Acabar el registre ja sigui perquè el dispositiu passa a REGISTERED o per iniciar un nou procés de registre
+                //Acabar el registre per iniciar un nou procés de registre
                 end_register_phase = false;
                 printTerminal("Esperant 2 s", DEBUG2);
                 sleep(u);
+                return NULL;
+            }
+            else if (completed_register_phase) {
+                //Acabar el registre perquè el dispositiu passa a REGISTERED
+                completed_register_phase = false;
                 return NULL;
             }
             else {
@@ -881,6 +887,7 @@ struct PduUdp unpackPduUdp(char* data, ssize_t bytes_received) {
 
 void* sendAlives(void* argAlive) {
     char* message = malloc(sizeof(char)*1000);
+    printTerminal("Creat procés per enviament periòdic de ALIVE", DEBUG);
     struct alive_arg_struct *args = argAlive;
     int sock = args->sock;
     struct sockaddr_in serveraddr = args->serveraddr;
@@ -1451,6 +1458,7 @@ void* handleCommands(void* unused) {
                             else {
                                 sprintf(message, "Error en el valor del camp element (rebut: %s, esperat: %s)", pdu_received.element, id_element);
                                 printTerminal(message, DEBUG);
+                                printTerminal("Caldria reenviar les dades al servidor", DEBUG);
                             }
                         }
                         else if (pdu_received.packet_type == DATA_NACK) {
@@ -1478,7 +1486,7 @@ void* handleCommands(void* unused) {
                 }
             }
             else {
-                printTerminal("Superat m segons sense resposta", DEBUG);
+                printTerminal("No s'ha rebut resposta del servidor per la comunicació TCP", DEBUG);
                 printTerminal("Caldria reenviar les dades al servidor", DEBUG);
             }
 
