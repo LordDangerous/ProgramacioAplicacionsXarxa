@@ -131,12 +131,6 @@ struct handle_udp_struct {
 } argHandleUdp;
 
 
-struct handle_set_get_struct {
-    int sock_tcp;
-    struct sockaddr_in tcpaddr;
-} argHandleSetGet;
-
-
 struct handle_continuous_alive_struct {
     int sock_udp;
     struct sockaddr_in serveraddr;
@@ -170,7 +164,6 @@ void* handleAlive(void* argp);
 void* sendAlives(void* argAlive);
 void* handleCommands(void* unused);
 void removeNewLine(char* s);
-void* handleSetGet(void* argHandleSetGet);
 void* handleContinuousAlive(void* argHandleContinuousAlive);
 char* getHour();
 void parseArgs(int argc, char* argv[]);
@@ -928,14 +921,6 @@ void* handleAlive(void* argp) {
     argAlive.serveraddr = serveraddr;
     argAlive.pdu = pdu;
 
-    // if ((bytes_sent = sendto(sock_udp, &pdu, sizeof(pdu), 0, (struct sockaddr*)&serveraddr, sizeof(serveraddr))) == -1) {
-    //     printf("Error a l'enviar pdu.");
-    //     printf("%d\n", errno);
-    // }
-    // sprintf(message, "Enviat 1r ALIVE -> bytes: %d  paquet: %x  id transmissor: %s  id comunicació: %s  dades: %s", bytes_sent, pdu.packet_type, pdu.id_transmitter, pdu.id_communication, pdu.data);
-    // printf(message);
-    //sendUdp(sock_udp, serveraddr, pdu);
-
     pthread_t thread_SENDALIVE;
     if (pthread_create(&thread_SENDALIVE, NULL, &sendAlives, (void *)&argAlive) != 0) {
         printTerminal("Error al crear el thread", ERROR);
@@ -1019,7 +1004,8 @@ void* handleAlive(void* argp) {
     }
 
     
-    int sock_tcp;
+    int sock_tcp, conn_tcp;
+    char buffer_tcp[127];
     sock_tcp = socket(AF_INET, SOCK_STREAM, 0);
     struct sockaddr_in tcpaddr;
 
@@ -1032,6 +1018,10 @@ void* handleAlive(void* argp) {
 
     sprintf(message, "Obert port TCP %d per la comunicació amb el servidor", client.tcp_port);
     printTerminal(message, MSG);
+
+    
+    argHandleContinuousAlive.sock_udp = sock_udp;
+    argHandleContinuousAlive.serveraddr = serveraddr;
 
     FD_ZERO(&rset);
     timeout.tv_sec = 0;
@@ -1048,66 +1038,81 @@ void* handleAlive(void* argp) {
 
         //Rebut quelcom pel socket udp
         if (FD_ISSET(sock_udp, &rset)) {
-            // len = sizeof(serveraddr);
-            // bytes_received = recvfrom(sock_udp, buffer, sizeof(buffer), 0, (struct sockaddr*)&serveraddr, &len);
             pthread_t thread_CONTINUOUSALIVE;
-            argHandleContinuousAlive.sock_udp = sock_udp;
-            argHandleContinuousAlive.serveraddr = serveraddr;
+            
             if (pthread_create(&thread_CONTINUOUSALIVE, NULL, &handleContinuousAlive, (void*)&argHandleContinuousAlive) != 0) {
-                printTerminal("ERROR en la creació del procés handleSetGet", ERROR);
+                printTerminal("ERROR en la creació del procés handleContinuousAlive", ERROR);
             }
-            // struct PduUdp pdu_received = unpackPduUdp(buffer, bytes_received);
-            // if (pdu_received.packet_type == ALIVE) {
-            //     if (strcmp(server.id_server, pdu_received.id_transmitter) == 0) {
-            //         if (strcmp(server.id_communication, pdu_received.id_communication) == 0){
-            //             if (strncmp(client.id_client, pdu_received.data, sizeof(client.id_client)) == 0){
-            //                 //Reiniciar temps ALIVE (per als 3 consecutius)
-            //                 time_alive = time(NULL);
-            //             }
-            //             else {
-            //                 sprintf(message, "Error en el valor del camp dades (rebut: %s, esperat: %s)", pdu_received.data, client.id_client);
-            //                 printTerminal(message, DEBUG);
-            //                 client.state = NOT_REGISTERED;
-            //                 printClientState();
-            //                 return NULL;
-            //             }
-            //         }
-            //         else {
-            //             sprintf(message, "Error en el valor del camp id. com. (rebut: %s, esperat: %s)", pdu_received.id_communication, server.id_communication);
-            //             printTerminal(message, DEBUG);
-            //             client.state = NOT_REGISTERED;
-            //             printClientState();
-            //             return NULL;
-            //         }    
-            //     } 
-            //     else {
-            //         sprintf(message, "Error en les dades d'identificació del servidor (rebut ip: %d, id: %s)", serveraddr.sin_port, pdu_received.id_transmitter);
-            //         printTerminal(message, DEBUG);
-            //         client.state = NOT_REGISTERED;
-            //         printClientState();
-            //         return NULL;
-            //     }
-            // }
-            // else if (pdu_received.packet_type == ALIVE_REJ) {
-            //     printTerminal("Rebut paquet ALIVE_REJ", DEBUG);
-            //     client.state = NOT_REGISTERED;
-            //     printClientState();
-            //     break;
-            // }
+            timeout.tv_sec = 0;
         }
 
         //Rebut quelcom pel socket tcp
         if (FD_ISSET(sock_tcp, &rset)) {
-            pthread_t thread_HANDLESETGET;
-            argHandleSetGet.sock_tcp = sock_tcp;
-            argHandleSetGet.tcpaddr = tcpaddr;
-            // len = sizeof(tcpaddr);
-            // conn_tcp = accept(sock_tcp, (struct sockaddr*)&tcpaddr, &len);
-            // bytes_received = read(conn_tcp, buffer_tcp, sizeof(buffer_tcp));
-            // handleSetGet(conn_tcp, tcpaddr, buffer_tcp, bytes_received);
-            if (pthread_create(&thread_HANDLESETGET, NULL, &handleSetGet, (void*)&argHandleSetGet) != 0) {
-                printTerminal("ERROR en la creació del procés handleSetGet", ERROR);
+            len = sizeof(tcpaddr);
+            conn_tcp = accept(sock_tcp, (struct sockaddr*)&tcpaddr, &len);
+            bytes_received = read(conn_tcp, buffer_tcp, sizeof(buffer_tcp));
+            char* message = malloc(sizeof(char)*1000);
+            struct PduTcp pdu_received = unpackPduTcp(buffer_tcp, bytes_received);
+            struct PduTcp pdu;
+            if (strcmp(server.id_server, pdu_received.id_transmitter) == 0) {
+                if (strcmp(server.id_communication, pdu_received.id_communication) == 0) {
+                    if (strcmp(pdu_received.info, client.id_client) == 0) {
+                        bool found = false;
+                        for (int i = 0; i < client.num_elements; i++) {
+                            if(strcmp(pdu_received.element, client.elements[i].element) == 0) {
+                                found = true;
+                                char* info = getHour();
+                                if (pdu_received.packet_type == SET_DATA && (strcmp(&pdu_received.element[6], "I") == 0)) {                             
+                                    strcpy(client.elements[i].value, pdu_received.value);
+                                    pdu = packPduTcp(DATA_ACK, client.id_client, server.id_communication, pdu_received.element, pdu_received.value, info);
+                                    sendTcp(conn_tcp, pdu);
+                                }
+                                else if (pdu_received.packet_type == SET_DATA && (strcmp(&pdu_received.element[6], "O") == 0)) {
+                                    sprintf(message, "Error paquet rebut. Element: %s és sensor i no permet establir el seu valor", pdu_received.element);
+                                    printTerminal(message, DEBUG);
+                                    pdu = packPduTcp(DATA_NACK, client.id_client, server.id_communication, pdu_received.element, pdu_received.value, "Element es sensor, no permet [set]");
+                                    sendTcp(conn_tcp, pdu);
+                                }
+                                if (pdu_received.packet_type == GET_DATA) {
+                                    pdu = packPduTcp(DATA_ACK, client.id_client, server.id_communication, pdu_received.element, client.elements[i].value, info);
+                                    sendTcp(conn_tcp, pdu);
+                                }
+                            }
+                        }
+                        if (!found) {
+                            sprintf(message, "Element: [%s] no pertany al dispositiu", pdu_received.element);
+                            printTerminal(message, DEBUG);
+                            pdu = packPduTcp(DATA_NACK, client.id_client, server.id_communication, pdu_received.element, pdu_received.value, "Element no pertany al dispositiu");
+                            sendTcp(conn_tcp, pdu);
+                        }
+                    }
+                    else {
+                        sprintf(message, "Error en el valor del camp info (rebut: %s, esperat: %s)", pdu_received.info, client.id_client);
+                        printTerminal(message, DEBUG);
+                        pdu = packPduTcp(DATA_REJ, client.id_client, server.id_communication, pdu_received.element, pdu_received.value, "Camp info incorrecte");
+                        sendTcp(conn_tcp, pdu);
+                        client.state = NOT_REGISTERED;
+                        printClientState();
+                    }
+                }
+                else {
+                    sprintf(message, "Error en el valor del camp id. com. (rebut: %s, esperat: %s)", pdu_received.id_communication, server.id_communication);
+                    printTerminal(message, DEBUG);
+                    pdu = packPduTcp(DATA_REJ, client.id_client, server.id_communication, pdu_received.element, pdu_received.value, "Id. comunicació incorrecte");
+                    sendTcp(conn_tcp, pdu);
+                    client.state = NOT_REGISTERED;
+                    printClientState();
+                }    
+            } 
+            else {
+                sprintf(message, "Error en les dades d'identificació del servidor (rebut: %s, esperat: %s)", pdu_received.id_transmitter, server.id_server);
+                printTerminal(message, DEBUG);
+                pdu = packPduTcp(DATA_REJ, client.id_client, server.id_communication, pdu_received.element, pdu_received.value, "Id. transmitter incorrecte");
+                sendTcp(conn_tcp, pdu);
+                client.state = NOT_REGISTERED;
+                printClientState();
             }
+            close(conn_tcp);
         }
 
         //Rebut quelcom per terminal
@@ -1116,6 +1121,7 @@ void* handleAlive(void* argp) {
             if (pthread_create(&thread_HANDLECOMMANDS, NULL, &handleCommands, NULL) != 0) {
                 printTerminal("ERROR en la creació del procés handleCommands", ERROR);
             }
+            timeout.tv_sec = 0;
         }
 
 
@@ -1186,7 +1192,7 @@ void* handleContinuousAlive(void* argHandleContinuousAlive) {
             }    
         } 
         else {
-            sprintf(message, "Error en les dades d'identificació del servidor (rebut ip: %d, id: %s)", serveraddr.sin_port, pdu_received.id_transmitter);
+            sprintf(message, "Error en les dades d'identificació del servidor (esperat: %d, id: %s)", server.id_server, pdu_received.id_transmitter);
             printTerminal(message, DEBUG);
             client.state = NOT_REGISTERED;
             printClientState();
@@ -1201,96 +1207,6 @@ void* handleContinuousAlive(void* argHandleContinuousAlive) {
 
 
     free(message);
-    return NULL;
-}
-
-
-void* handleSetGet(void* argHandleSetGet) {
-    struct handle_set_get_struct *args = argHandleSetGet;
-    int sock_tcp = args->sock_tcp;
-    struct sockaddr_in tcpaddr = args->tcpaddr;
-
-    int conn_tcp;
-    socklen_t len;
-    ssize_t bytes_received;
-    char buffer_tcp[127];
-
-    len = sizeof(tcpaddr);
-    conn_tcp = accept(sock_tcp, (struct sockaddr*)&tcpaddr, &len);
-    bytes_received = read(conn_tcp, buffer_tcp, sizeof(buffer_tcp));
-    char* message = malloc(sizeof(char)*1000);
-    struct PduTcp pdu_received = unpackPduTcp(buffer_tcp, bytes_received);
-    struct PduTcp pdu;
-    if (strcmp(server.id_server, pdu_received.id_transmitter) == 0) {
-        if (strcmp(server.id_communication, pdu_received.id_communication) == 0) {
-            if (strcmp(pdu_received.info, client.id_client) == 0) {
-                bool found = false;
-                for (int i = 0; i < client.num_elements; i++) {
-                    if(strcmp(pdu_received.element, client.elements[i].element) == 0) {
-                        found = true;
-                        char* info = getHour();
-                        if (pdu_received.packet_type == SET_DATA && (strcmp(&pdu_received.element[6], "I") == 0)) {                             
-                            strcpy(client.elements[i].value, pdu_received.value);
-                            pdu = packPduTcp(DATA_ACK, client.id_client, server.id_communication, pdu_received.element, pdu_received.value, info);
-                            // bytes_sent = write(conn_tcp, &pdu, sizeof(pdu));
-                            // sprintf(message, "Enviat -> bytes: %d  paquet: %x  id transmissor: %s  id comunicació: %s  element: %s  valor: %s  info: %s", bytes_sent, pdu.packet_type, pdu.id_transmitter, pdu.id_communication, pdu.element, pdu.value, pdu.info);
-                            // printf(message);
-                            sendTcp(conn_tcp, pdu);
-                        }
-                        else if (pdu_received.packet_type == GET_DATA) {
-                            pdu = packPduTcp(DATA_ACK, client.id_client, server.id_communication, pdu_received.element, client.elements[i].value, info);
-                            // bytes_sent = write(conn_tcp, &pdu, sizeof(pdu));
-                            // sprintf(message, "Enviat -> bytes: %d  paquet: %x  id transmissor: %s  id comunicació: %s  element: %s  valor: %s  info: %s", bytes_sent, pdu.packet_type, pdu.id_transmitter, pdu.id_communication, pdu.element, pdu.value, pdu.info);
-                            // printf(message);
-                            sendTcp(conn_tcp, pdu);
-                        }
-                    }
-                }
-                if (!found) {
-                    sprintf(message, "Element: [%s] no pertany al dispositiu", pdu_received.element);
-                    printTerminal(message, DEBUG);
-                    pdu = packPduTcp(DATA_REJ, client.id_client, server.id_communication, pdu_received.element, pdu_received.value, "Element incorrecte");
-                    // bytes_sent = write(conn_tcp, &pdu, sizeof(pdu));
-                    // sprintf(message, "Enviat -> bytes: %d  paquet: %x  id transmissor: %s  id comunicació: %s  element: %s  valor: %s  info: %s", bytes_sent, pdu.packet_type, pdu.id_transmitter, pdu.id_communication, pdu.element, pdu.value, pdu.info);
-                    // printf(message);
-                    sendTcp(conn_tcp, pdu);
-                }
-            }
-            else {
-                sprintf(message, "Error en el valor del camp info (rebut: %s, esperat: %s)", pdu_received.info, client.id_client);
-                printTerminal(message, DEBUG);
-                pdu = packPduTcp(DATA_REJ, client.id_client, server.id_communication, pdu_received.element, pdu_received.value, "Camp info incorrecte");
-                // bytes_sent = write(conn_tcp, &pdu, sizeof(pdu));
-                // sprintf(message, "Enviat -> bytes: %d  paquet: %x  id transmissor: %s  id comunicació: %s  element: %s  valor: %s  info: %s", bytes_sent, pdu.packet_type, pdu.id_transmitter, pdu.id_communication, pdu.element, pdu.value, pdu.info);
-                // printf(message);
-                sendTcp(conn_tcp, pdu);
-                client.state = NOT_REGISTERED;
-                printClientState();
-            }
-        }
-        else {
-            sprintf(message, "Error en el valor del camp id. com. (rebut: %s, esperat: %s)", pdu_received.id_communication, server.id_communication);
-            printTerminal(message, DEBUG);
-            pdu = packPduTcp(DATA_REJ, client.id_client, server.id_communication, pdu_received.element, pdu_received.value, "Id. comunicació incorrecte");
-            // bytes_sent = write(conn_tcp, &pdu, sizeof(pdu));
-            // sprintf(message, "Enviat -> bytes: %d  paquet: %x  id transmissor: %s  id comunicació: %s  element: %s  valor: %s  info: %s", bytes_sent, pdu.packet_type, pdu.id_transmitter, pdu.id_communication, pdu.element, pdu.value, pdu.info);
-            // printf(message);
-            sendTcp(conn_tcp, pdu);
-            client.state = NOT_REGISTERED;
-            printClientState();
-        }    
-    } 
-    else {
-        sprintf(message, "Error en les dades d'identificació del servidor (rebut ip: %d, id: %s)", tcpaddr.sin_port, pdu_received.id_transmitter);
-        printTerminal(message, DEBUG);
-        pdu = packPduTcp(DATA_REJ, client.id_client, server.id_communication, pdu_received.element, pdu_received.value, "Id. transmitter incorrecte");
-        // bytes_sent = write(conn_tcp, &pdu, sizeof(pdu));
-        // sprintf(message, "Enviat -> bytes: %d  paquet: %x  id transmissor: %s  id comunicació: %s  element: %s  valor: %s  info: %s", bytes_sent, pdu.packet_type, pdu.id_transmitter, pdu.id_communication, pdu.element, pdu.value, pdu.info);
-        // printf(message);
-        sendTcp(conn_tcp, pdu);
-        client.state = NOT_REGISTERED;
-        printClientState();
-    }
     return NULL;
 }
 
@@ -1479,7 +1395,7 @@ void* handleCommands(void* unused) {
                     }    
                 } 
                 else {
-                    sprintf(message, "Error en les dades d'identificació del servidor (rebut ip: %d, id: %s)", tcp_addr.sin_port, pdu_received.id_transmitter);
+                    sprintf(message, "Error en les dades d'identificació del servidor (esperat: %d, id: %s)", server.id_server, pdu_received.id_transmitter);
                     printTerminal(message, DEBUG);
                     client.state = NOT_REGISTERED;
                     printClientState();
@@ -1561,6 +1477,7 @@ void setup() {
     while (register_number <= o) {
         sock_udp = socket(AF_INET, SOCK_DGRAM, 0);
         args.sock = sock_udp;
+        args.serveraddr = serveraddr;
         sprintf(message, "Procés de subscripció: %d", register_number);
         printTerminal(message, MSG);
         if (pthread_create(&thread_REGISTER, NULL, &registerPhase, (void *)&args) != 0) {
