@@ -27,7 +27,7 @@ bool debug_mode = false;
 bool debug_mode_2 = false;
 bool quit = false;
 
-/* Packet type */
+//Tipus de paquet
 #define REG_REQ 0xa0
 #define REG_ACK 0xa1
 #define REG_NACK 0xa2
@@ -48,7 +48,7 @@ bool quit = false;
 #define SET_DATA 0xc4
 #define GET_DATA 0xc5
 
-/* States */
+//Estats
 #define DISCONNECTED 0xf0
 #define NOT_REGISTERED 0xf1
 #define WAIT_ACK_REG 0xf2
