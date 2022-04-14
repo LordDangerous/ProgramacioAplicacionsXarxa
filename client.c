@@ -186,7 +186,7 @@ int max (int x, int y) {
 }
 
 
-//Funció auxiliar que permet printejar l'estat del client amb forma de char 
+//Funció auxiliar que permet printejar l'estat del client amb forma de cadena de caràcters
 void printClientState() {
     //Utilizaré sempre un malloc per guardar memòria per fer tots els prints de cada nivell després (printTerminal)
     char* message = malloc(sizeof(char)*1000);
@@ -1241,9 +1241,32 @@ void* handleCommands(void* unused) {
     if (command != NULL) {
         //Evaluar si la comanda introduïda és correcta sense tenir en compte l'ús de majúscules
         if (strcasecmp(command, "stat") == 0) {
+            //Convertir l'estat actual del client a cadena de caràcters
+            char* state;
+            if (client.state == DISCONNECTED) {
+                state = "DISCONNECTED";
+            }
+            else if (client.state == NOT_REGISTERED) {
+                state = "NOT_REGISTERED";
+            }
+            else if (client.state == WAIT_ACK_REG) {
+                state = "WAIT_ACK_REG";
+            }
+            else if (client.state == WAIT_INFO) {
+                state = "WAIT_INFO";
+            }
+            else if (client.state == WAIT_ACK_INFO) {
+                state = "WAIT_ACK_INFO";
+            }
+            else if (client.state == REGISTERED) {
+                state = "REGISTERED";
+            }
+            else if (client.state == SEND_ALIVE) {
+                state = "SEND_ALIVE";
+            }
             printf("********************* DADES DISPOSITIU ***********************\n");
             printf("  Identificador: %s\n", client.id_client);
-            printf("  Estat: %x\n", client.state);
+            printf("  Estat: %s\n", state);
             printf("    Param  \tvalor\n");
             printf("    -------\t---------------\n");
             for (int i = 0; i < client.num_elements; i++) {
