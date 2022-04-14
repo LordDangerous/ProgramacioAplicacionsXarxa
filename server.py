@@ -1,6 +1,7 @@
 import socket
 import threading
 import time
+import signal
 from random import *
 import logging
 import sys
@@ -14,6 +15,7 @@ z = 2
 t = 1
 w = 3
 m = 3
+v = 2
 
 server_file = "server.cfg"
 database_file = "bbdd_dev.dat"
@@ -43,6 +45,15 @@ class Client:
         self.time_alive = time_alive
         self.counter_alive = counter_alive
         self.address = address
+
+    def reset(self):
+        self.state = "DISCONNECTED"
+        self.tcp_port = None
+        self.elements = None
+        self.random_number = None
+        self.time_alive = None
+        self.counter_alive = None
+        self.address = None
 
 
 class PduUdp:
@@ -185,6 +196,7 @@ def handle_udp_packet(sock, clients, server):
                 logging.debug(f"Rebut paquet: {packet_type_converter(pdu_udp.packet_type)} del dispositiu {pdu_udp.id_transmitter} en estat: {client.state}")
         elif client.state == "REGISTERED" or client.state == "SEND_ALIVE":
             if pdu_udp.packet_type == 'b0':
+                client.counter_alive = time.monotonic()
                 thread = threading.Thread(target=handle_alive, args=(pdu_udp, address, client, server))
                 thread.start()
             else:
@@ -214,10 +226,10 @@ def handle_tcp_packet(sock, clients, server):
                 logging.debug(f"Rebut paquet: {packet_type_converter(pdu_tcp.packet_type)} del dispositiu {pdu_tcp.id_transmitter} en una connexió TCP")
                 client.state = "DISCONNECTED"
                 print_client_state(client)
-                sock.close()
     else:
         logging.info(f"Rebut paquet incorrecte. Dispositiu: Id. transmissor: {pdu_tcp.id_transmitter} (no autoritzat)")
         send_tcp(conn, 'c3', server.id_server, "0000000000", "", "", "Dispositiu no autoritzat")
+    sock.close()
     return
 
 
@@ -352,10 +364,10 @@ def handle_set_and_get(sock_tcp, id_client, id_element, new_value, clients, serv
 def read_set_get_answer(sock, pdu_tcp_bytes):
     data_tcp = sock.recv(pdu_tcp_bytes)
     pdu_tcp = None
-    timer = time.time()
-    tcp_counter = time.time()
+    timer = time.monotonic()
+    tcp_counter = time.monotonic()
     while len(data_tcp) == 0 and tcp_counter - timer <= m:
-        tcp_counter = time.time()
+        tcp_counter = time.monotonic()
         data_tcp = sock.recv(pdu_tcp_bytes)
     if len(data_tcp) == pdu_tcp_bytes:
         pdu_tcp = unpack_pdu_tcp(data_tcp, pdu_tcp_bytes)
@@ -375,11 +387,11 @@ def read_udp(sock_udp, pdu_udp_bytes):
 def read_tcp(sock_tcp, pdu_tcp_bytes):
     conn, address = sock_tcp.accept()
     pdu_tcp = None
-    timer = time.time()
-    tcp_counter = time.time()
+    timer = time.monotonic()
+    tcp_counter = time.monotonic()
     data_tcp = conn.recv(pdu_tcp_bytes)
     while len(data_tcp) == 0 and tcp_counter - timer <= m:
-        tcp_counter = time.time()
+        tcp_counter = time.monotonic()
         data_tcp = conn.recv(pdu_tcp_bytes)
     if len(data_tcp) == pdu_tcp_bytes:
         pdu_tcp = unpack_pdu_tcp(data_tcp, pdu_tcp_bytes)
@@ -473,18 +485,19 @@ def handle_alive(pdu_udp, address, client, server):
     # Open new UDP port
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     server.udp_port += 1
-    sock.bind((HOST, server.udp_port))
+    try:
+        sock.bind((HOST, server.udp_port))
+    except socket.error as msg:
+        logging.error(f"No es pot fer el binding del socket UDP (errno: {msg})")
     
-    logging.debug("PAQUET ALIVE REBUT")
     # logging.info(f"ID TRANSMITTER: {pdu_udp.id_transmitter}")
     # logging.info(f"ID COMMUNICATION: {pdu_udp.id_communication}")
     # logging.info(f"DATA: {pdu_udp.data}\n")
 
-    if pdu_udp.id_communication == client.random_number and pdu_udp.data == "" and (time.time() - client.time_alive < w or client.time_alive == 0):
+    if pdu_udp.id_communication == client.random_number and pdu_udp.data == "" and (time.monotonic() - client.time_alive < w or client.time_alive == 0):
         # bytes_sent = sock.sendto(pack_pdu_udp('b0', server.id_server, client.random_number, client.id_client), address)
         # logging.info(f"PDU ALIVE sent -> id transmissor: {server.id_server}  id comunicació: {client.random_number} dades: {client.id_client}")
         # logging.info(f"Bytes sent: {bytes_sent} to address {address}\n")
-        client.counter_alive = time.time()
         send_udp(sock, 'b0', server.id_server, client.random_number, client.id_client, address)
         if client.state == "REGISTERED":
             client.state = "SEND_ALIVE"
@@ -558,7 +571,11 @@ def register(pdu_udp, address, sock, client, server):
         # Open new UDP port
         new_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         server.udp_port += 1
-        new_sock.bind((HOST, server.udp_port))
+        try:
+            new_sock.bind((HOST, server.udp_port))
+        except socket.error as msg:
+            logging.error(f"No es pot fer el binding del nou socket UDP (errno: {msg})")
+            exit()
 
         # bytes_sent = new_sock.sendto(pack_pdu_udp('a1', server.id_server, client.random_number, server.udp_port), address)
         # logging.info(f"PDU REG_ACK sent -> id transmissor: {server.id_server}  id comunicació: {client.random_number}  dades: {server.udp_port}")
@@ -591,7 +608,7 @@ def register(pdu_udp, address, sock, client, server):
                             send_udp(new_sock, 'a5', server.id_server, client.random_number, server.tcp_port, address)
                             client.state = "REGISTERED"
                             print_client_state(client)
-                            client.time_alive = time.time()
+                            client.time_alive = time.monotonic()
                             return
                         else:
                             logging.debug(f"Rebut paquet {packet_type_converter(pdu_udp.packet_type)} del dispositiu: {pdu_udp.id_transmitter} sense dades al camp data")
@@ -632,29 +649,48 @@ def register(pdu_udp, address, sock, client, server):
 
 def check_3_alive(clients):
     for client in clients:
-        if client.state == "REGISTERED" and time.time() - client.time_alive > 3 and client.time_alive != 0:
+        if client.state == "REGISTERED" and time.monotonic() - client.time_alive > w and client.time_alive != 0:
             logging.info(f"Dispositiu {client.id_client} no ha rebut el primer ALIVE en 3 segons")
             client.state = "DISCONNECTED"
             print_client_state(client)
-        if client.state == "SEND_ALIVE" and time.time() - client.counter_alive > 6:
-            logging.debug(f"Temps: {time.time() - client.counter_alive}")
+        if client.state == "SEND_ALIVE" and time.monotonic() - client.counter_alive > (v * 3):
             logging.info(f"Client {client.id_client} desconnectat per no enviar 3 ALIVE consecutius")
             client.state = "DISCONNECTED"
             print_client_state(client)
 
 
+def reset_client(clients):
+    for client in clients:
+        if client is not None and client.state == "DISCONNECTED":
+            client.reset()
+
+
+def handle_SIGINT(signum, frame):
+    logging.info("Finalització per ^C")
+    exit(1)
+
+
 def setup():
+    signal.signal(signal.SIGINT, handle_SIGINT)
     parse_args()
     server = read_file()
     clients = read_database()
 
     # UDP Wait packet
     sock_udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock_udp.bind((HOST, int(server.udp_port)))
+    try:
+        sock_udp.bind((HOST, int(server.udp_port)))
+    except socket.error as msg:
+        logging.error(f"No es pot fer el binding del socket UDP (errno: {msg})")
+        exit()
 
     # TCP Wait packet
     sock_tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock_tcp.bind((HOST, int(server.tcp_port)))
+    try:
+        sock_tcp.bind((HOST, int(server.tcp_port)))
+    except socket.error as msg:
+        logging.error(f"No es pot fer el binding del socket TCP (errno: {msg})")
+        exit()
     sock_tcp.listen()
 
     input_socket = [sock_udp, sock_tcp, sys.stdin.fileno()]
@@ -680,6 +716,9 @@ def setup():
                 logging.info(f"\nUnknown socket: {sock}")
                 
         thread = threading.Thread(target=check_3_alive, args=(clients,))
+        thread.start()
+
+        thread = threading.Thread(target=reset_client, args=(clients,))
         thread.start()
 
         if quit:

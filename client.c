@@ -250,7 +250,7 @@ void printTerminal(char* message, char* level) {
     }
     else if (strcmp(level, DEBUG2) == 0) {
         if (debug_mode_2) {
-            printf("%02d:%02d:%02d - DEBUG => %s\n", hours, minutes, seconds, message);
+            printf("%02d:%02d:%02d - DEBUG2 => %s\n", hours, minutes, seconds, message);
         }
     }
 }
