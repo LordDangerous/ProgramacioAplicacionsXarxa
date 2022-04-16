@@ -241,7 +241,7 @@ def handle_tcp_packet(sock, clients, server):
     else:
         logging.info(f"Rebut paquet incorrecte. Dispositiu: Id. transmissor: {pdu_tcp.id_transmitter} (no autoritzat)")
         send_tcp(conn, 'c3', server.id_server, "0000000000", "", "", "Dispositiu no autoritzat")
-    sock.close()
+    conn.close()
     return
 
 
@@ -539,7 +539,7 @@ def handle_send_data(pdu_tcp, conn, client, server):
 # Funció auxiliar que obre l'arxiu, o el crea, amb el nom del client i afegeix en una nova línia la informació
 def write_data(pdu_tcp, client):
     f = open(client.id_client + ".data", "a")
-    f.write(pdu_tcp.info + ";" + pdu_tcp.packet_type + ";" + pdu_tcp.element + ";" + pdu_tcp.value + "\n")
+    f.write(pdu_tcp.info + ";" + packet_type_converter(pdu_tcp.packet_type) + ";" + pdu_tcp.element + ";" + pdu_tcp.value + "\n")
     f.close()
 
 
@@ -655,7 +655,8 @@ def reset_client(clients):
 # Handler per detectar si l'usuari ha introduït ctrl + c per aturar el servidor
 def handle_SIGINT(signum, frame):
     logging.info("Finalització per ^C")
-    exit(1)
+    global quit
+    quit = True
 
 
 # Funció encarregada d'assignar a la senyal SIGINT (ctrl + c) el handler corresponent, cridar a les funcions responsables 
@@ -685,10 +686,12 @@ def setup():
         exit()
     sock_tcp.listen()
 
+    
     input_socket = [sock_udp, sock_tcp, sys.stdin.fileno()]
 
+
     while True:
-    
+
         input_ready, output_ready, except_ready = select(input_socket, [], [], 0)
 
         for sock in input_ready:
