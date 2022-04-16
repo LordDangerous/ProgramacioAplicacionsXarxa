@@ -17,9 +17,10 @@ m = 3
 v = 2
 
 
-# Definir les variables HOST, en el nostre cas sempre localhost, server_file, que contindrà el nom de l'arxiu per defecte o 
-# l'especificat per l'usuari per terminal, de la mateixa forma que la variable global database_file per la base de dades. 
-# quit servirà per saber si l'usuari ha introduït la comanda "quit" per terminal i fer el procediment necessari
+# Definir les variables HOST, en el nostre cas sempre localhost, server_file, que contindrà el nom de l'arxiu per
+# defecte o l'especificat per l'usuari per terminal, de la mateixa forma que la variable global database_file per
+# la base de dades. quit servirà per saber si l'usuari ha introduït la comanda "quit" per terminal i
+# fer el procediment necessari
 HOST = 'localhost'
 server_file = "server.cfg"
 database_file = "bbdd_dev.dat"
@@ -333,6 +334,7 @@ def handle_set_and_get(id_client, id_element, new_value, clients, server, comman
         except socket.error:
             client.state = "DISCONNECTED"
             print_client_state(client)
+            return
         if command == "get":
             # Enviar paquet GET_DATA
             send_tcp(sock, 'c5', server.id_server, client.random_number, id_element, "", id_client)
@@ -403,8 +405,8 @@ def read_udp(sock_udp, pdu_udp_bytes):
     return pdu_udp, address
 
 
-# Funció molt semblant a read_set_get_answer però en aquest cas esperarà rebre informació dels clients per una altra connexió TCP.
-# De la mateixa forma, si no s'ha rebut cap informació en m segons s'informarà per terminal
+# Funció molt semblant a read_set_get_answer però en aquest cas esperarà rebre informació dels clients per una altra
+# connexió TCP. # De la mateixa forma, si no s'ha rebut cap informació en m segons s'informarà per terminal
 def read_tcp(sock_tcp, pdu_tcp_bytes):
     conn, address = sock_tcp.accept()
     pdu_tcp = None
@@ -421,10 +423,11 @@ def read_tcp(sock_tcp, pdu_tcp_bytes):
     return pdu_tcp, conn, address
 
 
-# Funció auxiliar encarregada de passar a bytes els diferents paràmetres, i de forma diferent cadascun depenent del tipus d'informació
-# que contenen, així com fer ús de la funció pack, amb el nombre de bytes definit per cada paràmetre, per aconseguir un objecte de tipus
-# bytes que contigui tota la informació. Es defineixen, per la pdu UDP, 1bytes pel tipus de paquet, 11 bytes per l'id transmissor,
-# 11 bytes per l'id communicació i 61 per les dades (primer paràmetre de la funció pack)
+# Funció auxiliar encarregada de passar a bytes els diferents paràmetres, i de forma diferent cadascun depenent
+# del tipus d'informació # que contenen, així com fer ús de la funció pack, amb el nombre de bytes definit per cada
+# paràmetre, per aconseguir un objecte de tipus # bytes que contigui tota la informació. Es defineixen,
+# per la pdu UDP, 1bytes pel tipus de paquet, 11 bytes per l'id transmissor, 11 bytes per l'id communicació
+# i 61 per les dades (primer paràmetre de la funció pack)
 def pack_pdu_udp(package_type, id_client_transmitter, id_client_communication, data):
     return pack("1s 11s 11s 61s", bytes.fromhex(package_type), bytes(id_client_transmitter, "UTF-8"),
                 bytes(str(id_client_communication), "UTF-8"), bytes(str(data), "UTF-8"))
@@ -435,8 +438,8 @@ def pack_pdu_tcp(package_type, id_client_transmitter, id_client_communication, e
     return pack("1s 11s 11s 8s 16s 80s", bytes.fromhex(package_type), bytes(id_client_transmitter, "UTF-8"), bytes(str(id_client_communication), "UTF-8"), bytes(str(element), "UTF-8"), bytes(str(value), "UTF-8"), bytes(str(info), "UTF-8"))
 
 
-# Funció encarregada de desempaquetar els bytes rebuts per un socket de tipus UDP, mitjançant la funció unpack i els bytes dels diferents camps,
-# i guardar en un objecte de tipus PduUdp els diferents valors
+# Funció encarregada de desempaquetar els bytes rebuts per un socket de tipus UDP, mitjançant la funció unpack
+# i els bytes dels diferents camps, i guardar en un objecte de tipus PduUdp els diferents valors
 def unpack_pdu_udp(pdu, bytes_received):
     package_type, id_client_transmitter, id_client_communication, data = unpack('1s11s11s61s', pdu)
     decoded_package_type = package_type.hex()
@@ -498,7 +501,7 @@ def check_client_reg_info(data, client):
 
 # Funció encarregada d'atendre el manteniment de la comunicació periòdica amb els clients
 def handle_alive(sock, pdu_udp, address, client, server):
-    if pdu_udp.id_communication == client.random_number and pdu_udp.data == "" and (time.monotonic() - client.time_alive < w or client.time_alive == 0):
+    if pdu_udp.id_communication == client.random_number and pdu_udp.data == "" and (time.monotonic() - client.time_alive <= w or client.time_alive == 0):
         send_udp(sock, 'b0', server.id_server, client.random_number, client.id_client, address)
         if client.state == "REGISTERED":
             client.state = "SEND_ALIVE"
@@ -512,7 +515,8 @@ def handle_alive(sock, pdu_udp, address, client, server):
         print_client_state(client)
 
 
-# Funció encarregada de comprovar el paquet SEND_DATA enviat pel client, guardar la informació si tot és correcte, i contestar amb el paquet pertinent
+# Funció encarregada de comprovar el paquet SEND_DATA enviat pel client, guardar la informació si
+# tot és correcte, i contestar amb el paquet pertinent
 def handle_send_data(pdu_tcp, conn, client, server):
     if client.state == "SEND_ALIVE" and pdu_tcp.packet_type == 'c0':
         if pdu_tcp.id_communication == client.random_number:
@@ -577,8 +581,8 @@ def register(pdu_udp, address, sock, client, server):
 
         input_sock = [new_sock]
 
-        # Mitjançant la funció select (amb el timeout t = 1) i la instrucció for fins a z aconseguim saber si el paquet REG_INFO arriba abans de 
-        # z segons al servidor
+        # Mitjançant la funció select (amb el timeout t = 1) i la instrucció for fins a z aconseguim saber
+        # si el paquet REG_INFO arriba abans de z segons al servidor
         for i in range(z):
             # La funció select espera a que un descriptor de fitxer estigui preparat de la llista "input_sock"
             input_ready, output_ready, except_ready = select(input_sock, [], [], t)
@@ -594,7 +598,8 @@ def register(pdu_udp, address, sock, client, server):
                                 send_udp(new_sock, 'a5', server.id_server, client.random_number, server.tcp_port, address)
                                 client.state = "REGISTERED"
                                 print_client_state(client)
-                                # Establir el comptador de temps per rebre el primer paquet ALIVE, ja que el client ha passat a l'estat REGISTERED
+                                # Establir el comptador de temps per rebre el primer paquet ALIVE, ja que el client
+                                # ha passat a l'estat REGISTERED
                                 client.time_alive = time.monotonic()
                                 return
                         else:
@@ -632,7 +637,7 @@ def register(pdu_udp, address, sock, client, server):
     return
 
 
-# Funció auxiliar que comprova continuament que els clients enviïn el primer ALIVE dins del temps w i que es rebin 3 ALIVE consecutius
+# Funció auxiliar que comprova que els clients enviïn el primer ALIVE dins del temps w i que es rebin 3 ALIVE consecutius
 def check_3_alive(clients):
     for client in clients:
         if client.state == "REGISTERED" and time.monotonic() - client.time_alive > w and client.time_alive != 0:
@@ -645,7 +650,8 @@ def check_3_alive(clients):
             print_client_state(client)
 
 
-# Funció auxiliar per borrar el contingut emmagatzemat al servidor del client que s'ha desconnectat mitjançant el mètode reset de la classe Client
+# Funció auxiliar per borrar el contingut emmagatzemat al servidor del client que s'ha desconnectat
+# mitjançant el mètode reset de la classe Client
 def reset_client(clients):
     for client in clients:
         if client is not None and client.state == "DISCONNECTED":
@@ -659,10 +665,11 @@ def handle_SIGINT(signum, frame):
     quit = True
 
 
-# Funció encarregada d'assignar a la senyal SIGINT (ctrl + c) el handler corresponent, cridar a les funcions responsables 
-# de mirar els arguments introduïts al executar el programa, llegir l'arxiu de configuració i la base de dades i, sobretot, 
-# inicialitzar els sockets UDP, TCP i el descriptor de fitxer per llegir les comandes introduïdes per terminal. A més a més, 
-# si la variable global "quit" és certa tancarà les comunicacions i finalitzarà el programa
+# Funció encarregada d'assignar a la senyal SIGINT (ctrl + c) el handler corresponent, cridar a les funcions
+# responsables de mirar els arguments introduïts al executar el programa, llegir l'arxiu de configuració i
+# la base de dades i, sobretot, inicialitzar els sockets UDP, TCP i el descriptor de fitxer per llegir les
+# comandes introduïdes per terminal. A més a més, si la variable global "quit" és certa tancarà les
+# comunicacions i finalitzarà el programa
 def setup():
     signal.signal(signal.SIGINT, handle_SIGINT)
     parse_args()
