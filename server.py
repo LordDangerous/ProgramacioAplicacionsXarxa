@@ -589,13 +589,14 @@ def register(pdu_udp, address, sock, client, server):
                 if client.id_client == pdu_udp.id_transmitter:
                     if pdu_udp.id_communication == client.random_number:
                         if pdu_udp.data != "":
-                            check_client_reg_info(pdu_udp.data, client)
-                            send_udp(new_sock, 'a5', server.id_server, client.random_number, server.tcp_port, address)
-                            client.state = "REGISTERED"
-                            print_client_state(client)
-                            # Establir el comptador de temps per rebre el primer paquet ALIVE, ja que el client ha passat a l'estat REGISTERED
-                            client.time_alive = time.monotonic()
-                            return
+                            if pdu_udp.packet_type == 'a4':
+                                check_client_reg_info(pdu_udp.data, client)
+                                send_udp(new_sock, 'a5', server.id_server, client.random_number, server.tcp_port, address)
+                                client.state = "REGISTERED"
+                                print_client_state(client)
+                                # Establir el comptador de temps per rebre el primer paquet ALIVE, ja que el client ha passat a l'estat REGISTERED
+                                client.time_alive = time.monotonic()
+                                return
                         else:
                             logging.debug(f"Rebut paquet {packet_type_converter(pdu_udp.packet_type)} del dispositiu: {pdu_udp.id_transmitter} sense dades al camp data")
                             send_udp(new_sock, 'a6', server.id_server, client.random_number, "REG_INFO sense dades addicionals", address)
