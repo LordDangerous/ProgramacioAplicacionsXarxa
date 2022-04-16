@@ -1,3 +1,4 @@
+#!/usr/bin/python3.10
 import socket
 import threading
 import time
@@ -276,7 +277,7 @@ def handle_commands(sock, server_input, clients, server):
             thread = threading.Thread(target=handle_set_and_get, args=(id_client, id_element, None, clients, server, server_command))
             thread.start()
         else:
-            logging.info("Error de sintàxi. (set <nom_contr.> <element>)")
+            logging.info("Error de sintàxi. (get <nom_contr.> <element>)")
     elif server_command == "list":
         show_table(clients)
     elif server_command == "quit":
