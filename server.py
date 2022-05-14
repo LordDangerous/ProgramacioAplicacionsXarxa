@@ -655,7 +655,7 @@ def check_3_alive(clients):
 # mitjançant el mètode reset de la classe Client
 def reset_client(client):
     if client is not None:
-        reset_client(client)
+        client.state = "DISCONNECTED"
         client.reset()
 
 
