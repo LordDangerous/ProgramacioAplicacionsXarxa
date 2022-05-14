@@ -217,7 +217,7 @@ def handle_udp_packet(sock, clients, server):
             else:
                 logging.debug(f"Rebut paquet: {packet_type_converter(pdu_udp.packet_type)} del dispositiu {pdu_udp.id_transmitter} en estat: {client.state}")
                 if client.state != "DISCONNECTED":
-                    client.state = "DISCONNECTED"
+                    reset_client(client)
                     print_client_state(client)
         else:
             logging.info("Packet desconegut")
@@ -238,7 +238,7 @@ def handle_tcp_packet(sock, clients, server):
                 handle_send_data(pdu_tcp, conn, client, server)
             else:
                 logging.debug(f"Rebut paquet: {packet_type_converter(pdu_tcp.packet_type)} del dispositiu {pdu_tcp.id_transmitter} en una connexió TCP")
-                client.state = "DISCONNECTED"
+                reset_client(client)
                 print_client_state(client)
     else:
         logging.info(f"Rebut paquet incorrecte. Dispositiu: Id. transmissor: {pdu_tcp.id_transmitter} (no autoritzat)")
@@ -333,7 +333,7 @@ def handle_set_and_get(id_client, id_element, new_value, clients, server, comman
         try:
             sock.connect(tcp_connexion)
         except socket.error:
-            client.state = "DISCONNECTED"
+            reset_client(client)
             print_client_state(client)
             return
         if command == "get":
@@ -359,18 +359,18 @@ def handle_set_and_get(id_client, id_element, new_value, clients, server, comman
                             logging.info(f"Error en les dades d'identificació de l'element: {id_element} del dispositiu: {id_client} (rebut element: {pdu_tcp.element})")
                     else:
                         logging.info(f"Error en les dades d'identificació del dispositiu: {client.random_number} (rebut id. com.: {pdu_tcp.id_communication}")
-                        client.state = "DISCONNECTED"
+                        reset_client(client)
                         print_client_state(client)
 
                 else:
                     logging.info(f"Error en les dades d'identificació del dispositiu: {id_client} (rebut id: {pdu_tcp.id_transmitter}, id. com.: {pdu_tcp.id_communication}")
-                    client.state = "DISCONNECTED"
+                    reset_client(client)
                     print_client_state(client)
             elif pdu_tcp.packet_type == 'c2':
                 logging.debug(f"Paquet DATA_NACK rebut")
             elif pdu_tcp.packet_type == 'c3':
                 logging.debug(f"Paquet DATA_REJ rebut")
-                client.state = "DISCONNECTED"
+                reset_client(client)
                 print_client_state(client)
         else:
             return
@@ -512,7 +512,7 @@ def handle_alive(sock, pdu_udp, address, client, server):
     else:
         logging.debug("Rebut paquet: ALIVE del dispositiu {client.id_client} amb dades incorrectes")
         send_udp(sock, 'b2', server.id_server, client.random_number, "Error en dades del dispositiu", address)
-        client.state = "DISCONNECTED"
+        reset_client(client)
         print_client_state(client)
 
 
@@ -537,7 +537,7 @@ def handle_send_data(pdu_tcp, conn, client, server):
         else:
             logging.info(f"Rebut paquet incorrecte. Dispositiu: Id: {pdu_tcp.id_transmitter}. Error en el valor del camp id. comunicació: {pdu_tcp.id_communication}")
             send_tcp(conn, 'c3', server.id_server, "0000000000", pdu_tcp.element, pdu_tcp.value, "Error identificació dispositiu")
-            client.state = "DISCONNECTED"
+            reset_client(client)
             print_client_state(client)
 
 
@@ -606,26 +606,26 @@ def register(pdu_udp, address, sock, client, server):
                         else:
                             logging.debug(f"Rebut paquet {packet_type_converter(pdu_udp.packet_type)} del dispositiu: {pdu_udp.id_transmitter} sense dades al camp data")
                             send_udp(new_sock, 'a6', server.id_server, client.random_number, "REG_INFO sense dades addicionals", address)
-                            client.state = "DISCONNECTED"
+                            reset_client(client)
                             print_client_state(client)
                             return
                     else:
                         logging.debug(f"Rebut paquet {packet_type_converter(pdu_udp.packet_type)} del dispositiu: {pdu_udp.id_transmitter} amb id comunicació incorrecte")
                         send_udp(new_sock, 'a6', server.id_server, client.random_number, "REG_INFO amb id comunicació incorrecte", address)
-                        client.state = "DISCONNECTED"
+                        reset_client(client)
                         print_client_state(client)
                         return            
                 else:
                     logging.debug(f"Rebut paquet {packet_type_converter(pdu_udp.packet_type)} del dispositiu: {pdu_udp.id_transmitter} no autoritzat")
                     send_udp(new_sock, 'a6', server.id_server, client.random_number, "REG_INFO sense dades addicionals", address)
-                    client.state = "DISCONNECTED"
+                    reset_client(client)
                     print_client_state(client)
                     return
                             
 
         if client.state != "REGISTERED" and client.state != "SEND_ALIVE":
             logging.info(f"S'ha exhaurit el temps z: {z} per rebre el paquet REG_INFO")
-            client.state = "DISCONNECTED"
+            reset_client(client)
             print_client_state(client)
         new_sock.close()
 
@@ -633,7 +633,7 @@ def register(pdu_udp, address, sock, client, server):
         if client is not None:
             logging.info(f"Petició de registre errònia. Dispositiu: Id: {pdu_udp.id_transmitter} , id. comunicació: {pdu_udp.id_communication} , data: {pdu_udp.data}")
             send_udp(sock, 'a3', server.id_server, "0000000000", "Error en els camps del paquet de registre", address)
-            client.state = "DISCONNECTED"
+            reset_client(client)
             print_client_state(client)
     return
 
@@ -643,20 +643,20 @@ def check_3_alive(clients):
     for client in clients:
         if client.state == "REGISTERED" and time.monotonic() - client.time_alive > w and client.time_alive != 0:
             logging.info(f"Dispositiu {client.id_client} no ha rebut el primer ALIVE en 3 segons")
-            client.state = "DISCONNECTED"
+            reset_client(client)
             print_client_state(client)
         if client.state == "SEND_ALIVE" and time.monotonic() - client.counter_alive > (v * 3):
             logging.info(f"Client {client.id_client} desconnectat per no enviar 3 ALIVE consecutius")
-            client.state = "DISCONNECTED"
+            reset_client(client)
             print_client_state(client)
 
 
 # Funció auxiliar per borrar el contingut emmagatzemat al servidor del client que s'ha desconnectat
 # mitjançant el mètode reset de la classe Client
-def reset_client(clients):
-    for client in clients:
-        if client is not None and client.state == "DISCONNECTED":
-            client.reset()
+def reset_client(client):
+    if client is not None:
+        reset_client(client)
+        client.reset()
 
 
 # Handler per detectar si l'usuari ha introduït ctrl + c per aturar el servidor
@@ -719,9 +719,6 @@ def setup():
                 logging.info(f"\nUnknown socket: {sock}")
                 
         thread = threading.Thread(target=check_3_alive, args=(clients,))
-        thread.start()
-
-        thread = threading.Thread(target=reset_client, args=(clients,))
         thread.start()
 
         if quit:
